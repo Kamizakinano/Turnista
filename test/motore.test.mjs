@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { genera, regoleBase, verifica, suggerimenti, oreSettimana, coperture, oreGiorno, accorcia, preferenze, assenzeSettimana, orePagate, oreMancanti } from '../motore.js';
+import { genera, regoleBase, verifica, suggerimenti, oreSettimana, coperture, oreGiorno, accorcia, preferenze, assenzeSettimana, orePagate, oreMancanti, assegnaAttivita, competenzaDi } from '../motore.js';
 
 // 25 dipendenti di esempio (nomi inventati): 5 responsabili, contratti da 40, 30 e 20 ore.
 export function esempio() {
@@ -8,7 +8,7 @@ export function esempio() {
   return Array.from({ length: 25 }, (_, i) => ({
     id: 'd' + i, nome: 'Persona ' + (i + 1), resp: i < 5,
     ore: i === 23 || i === 24 ? 20 : i % 3 === 0 ? 30 : 40,
-    abilita: [abil[i % 4], 'cassa'],
+    abilita: [abil[i % 4], 'cassa', ...(i % 3 === 0 ? ['Food'] : []), ...(i % 4 === 1 ? ['Promo', 'Testate'] : []), ...(i % 5 === 2 ? ['frutta', 'pane'] : [])],
   }));
 }
 
@@ -29,7 +29,7 @@ test('la settimana rispetta tutte le regole', () => {
 function negozio() {
   return Array.from({ length: 24 }, (_, i) => ({ id: 'n' + i, nome: 'Collega ' + (i + 1),
     ore: i < 6 ? 40 : i < 21 ? 30 : 20, resp: i < 6, velocita: i % 3 === 0 ? 'lento' : i % 5 === 0 ? 'veloce' : 'normale',
-    abilita: ['cassa', i % 2 ? 'pane' : 'commissionamento'] }));
+    abilita: ['cassa', i % 2 ? 'pane' : 'commissionamento', ...(i % 3 === 0 ? ['Food', 'frutta'] : []), ...(i % 4 === 1 ? ['Promo', 'Testate'] : [])] }));
 }
 function regoleNegozio() {
   const r = regoleBase();
@@ -193,4 +193,19 @@ test('ore mancanti: chi è sotto contratto, senza contare i giorni di assenza', 
   assert.ok(!m.some(x => x.id === 'n10'));
   for (const x of m) assert.ok(Math.abs(x.contratto - x.fatte - x.manca) < 1e-9 && x.manca > 0);
   for (let i = 1; i < m.length; i++) assert.ok(m[i - 1].manca >= m[i].manca);
+});
+
+test('attività: in ogni turno c\'è chi sa fare ogni attività, e ognuna ha una persona', () => {
+  const dip = negozio(), r = regoleNegozio();
+  const { piano } = genera(dip, r);
+  assert.deepEqual(verifica(piano, dip, r).errori, []);
+  for (let g = 0; g < 7; g++)
+    for (const f of ['M', 'P'])
+      for (const a of assegnaAttivita(piano, dip, r, g, f)) {
+        assert.ok(a.id, `${g} ${f} ${a.attivita} senza persona`);
+        assert.equal(piano[g][a.id].fascia, f);
+        const c = competenzaDi(a.attivita), d = dip.find(x => x.id === a.id);
+        if (c === 'resp') assert.ok(d.resp);
+        else if (c) assert.ok(d.abilita.some(x => x.toLowerCase() === c), `${a.attivita} a ${d.nome}`);
+      }
 });

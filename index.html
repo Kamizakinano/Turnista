@@ -69,7 +69,7 @@
 
 <script type="module">
 import { GIORNI, FASCE, regoleBase, genera, verifica, suggerimenti, oreGiorno, oreSettimana, orePagate,
-         coperture, ora, assenzeSettimana, oreMancanti } from './motore.js';
+         coperture, ora, assenzeSettimana, oreMancanti, assegnaAttivita } from './motore.js';
 
 // Domande e avvisi dentro la pagina (le finestre del browser come confirm() qui non funzionano).
 function chiedi(testo, { si = 'Sì', no = 'Annulla', copia = null, incolla = false } = {}) {
@@ -201,6 +201,8 @@ function vistaGiorno(g) {
     <div class="riga"><span>Cambio turno ${ora(r.cambio.da)}–${ora(r.cambio.a)}</span><b class="${c.cambio >= r.cambio.min && c.respCambio ? 'ok' : 'no'}">${c.cambio}${c.respCambio ? ', con resp.' : ', senza resp.'}</b></div>
     <div class="riga"><span>Alla chiusura (${ora(a)})</span><b class="${c.chiusura >= r.minChiusura ? 'ok' : 'no'}">${c.chiusura} (min ${r.minChiusura})</b></div>
     <div class="riga"><span>Ore del giorno</span><b>${hm(oreGiorno(piano[g], r))} / ${r.monteOre[g]} h</b></div>
+    ${['M', 'P'].map(f => { const a = assegnaAttivita(piano, dati.dipendenti, r, g, f); return a.length ? `<h2 style="margin-top:12px">Attività ${FASCE[f].toLowerCase()}</h2>
+      ${a.map(x => `<div class="riga"><span>${esc(x.attivita)}</span>${x.id ? `<b>${esc(nomeDi(x.id))}</b>` : '<b class="no">nessuno</b>'}</div>`).join('')}` : ''; }).join('')}
     <p style="text-align:right"><button data-chiudi>Chiudi</button></p>`;
 }
 
@@ -364,6 +366,9 @@ function vistaRegole() {
       <div class="campo"><span>Pausa non pagata (min)</span>${num('pausa', r.pausa, 0, 90)}</div>
       <div class="campo"><span>Turno più corto (ore)</span><input type="number" data-regola="durataMin" data-ore value="${r.durataMin / 60}" min="2" max="8"></div>
       <div class="campo"><span>Accorcia da solo per stare nel monte ore</span><input type="checkbox" data-regola="accorciaDaSolo" ${r.accorciaDaSolo !== false ? 'checked' : ''}></div></div>
+    <div class="carta"><h2>Attività</h2><div class="grigio">Separate da virgola. “Occasioni” e “food” = Food, “Bake” = pane, “responsabile” = un CM, “Carne” = chiunque.</div>
+      ${GIORNI.map((n, g) => `<div style="margin-top:10px"><b>${n}</b>${['M', 'P'].map(f => `<div class="campo"><span style="width:90px">${FASCE[f]}</span>
+        <textarea data-attivita="${g}.${f}" rows="2" style="flex:1;font:inherit;padding:6px 8px;border:1px solid var(--linea);border-radius:10px;background:var(--carta);color:var(--testo)">${esc((r.attivita?.[g]?.[f] ?? []).join(', '))}</textarea></div>`).join('')}</div>`).join('')}</div>
     <div class="carta"><h2>Vincoli</h2>
       <div class="campo"><span>Minimo all'apertura</span>${num('minApertura', r.minApertura, 1, 20)}</div>
       <div class="campo"><span>Minimo alla chiusura</span>${num('minChiusura', r.minChiusura, 1, 20)}</div>
@@ -466,6 +471,12 @@ document.getElementById('pagina').addEventListener('change', async e => {
       if (await chiedi('Sostituire i dati di questo dispositivo con la copia?')) { dati = { ...nuovi, regole: { ...regoleBase(), ...nuovi.regole } }; salva(); disegna(); }
     } catch { avvisa('Il file non è una copia di Turnista.'); }
     return;
+  }
+  if (el.dataset.attivita) {
+    const [g, f] = el.dataset.attivita.split('.');
+    dati.regole.attivita = structuredClone(dati.regole.attivita ?? regoleBase().attivita);
+    dati.regole.attivita[g][f] = el.value.split(',').map(x => x.trim()).filter(Boolean);
+    return salva();
   }
   if (el.dataset.regola) {
     const parti = el.dataset.regola.split('.');

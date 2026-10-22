@@ -17,5 +17,8 @@ Web app (HTML + JavaScript, senza librerie) per creare i turni settimanali di un
 - Rotazione: ognuno fa tutta la settimana in una squadra (mattina o pomeriggio), la settimana dopo cambia; le squadre si equilibrano per giorni e responsabili.
 - Giorni per contratto: 40 h → 5, 30 h → 4, 20 h → 3–4, turno fisso (es. 8 h solo domenica 06:00–14:10). Mai di più; se i posti non bastano si fanno meno giorni, divisi in proporzione.
 - Orari dei turni = finestra. Monte ore per giorno: se superato, il sistema accorcia da solo (opzione in Regole): prima si fa entrare più tardi (anche di pomeriggio), solo dopo uscire prima; orari a mezz'ore, turno minimo in Regole, turni fissi intoccabili.
+- Attività per giorno e fascia (in Regole): in ogni turno ci dev'essere chi sa farle; una persona per attività, la stessa può farne più d'una. Occasioni/food = Food, Bake = pane, responsabile = CM, Carne = chiunque. Le squadre si equilibrano anche per competenze.
+- Dopo la generazione: elenco "Ore mancanti" di chi resta sotto contratto.
+- Le anteprime per l'utente sono foto vere dell'app (copia di prova) in cornice iPhone, non disegni.
 - Le richieste (ferie, permessi, non disponibile in un orario) escludono la persona e il sistema assegna altri.
 - I dati dei colleghi restano solo nel browser dell'utente: il repository è pubblico, mai salvarci nomi veri.
