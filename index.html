@@ -222,7 +222,7 @@ function vistaDipendenti() {
   if (!dati.dipendenti.length) h += `<div class="grigio">Nessun dipendente. Aggiungili uno alla volta, oppure carica un esempio con nomi inventati per provare.</div>`;
   for (const d of dati.dipendenti)
     h += `<div class="riga" data-dip="${d.id}" style="cursor:pointer"><span>${esc(d.nome)} ${d.resp ? '<span class="etichetta resp">RESP</span>' : ''}${(d.abilita ?? []).map(a => `<span class="etichetta">${esc(a)}</span>`).join('')}</span><b>${d.ore} h</b></div>`;
-  h += `</div><div class="carta"><h2>Richieste · sett. ${kw(lunedi)} (${data(lunedi, 0)} – ${data(lunedi, 6)})</h2>
+  h += `</div>${dati.dipendenti.length ? '<p><button class="rosso" data-az="eliminaTutti">Elimina tutti</button></p>' : ''}<div class="carta"><h2>Richieste · sett. ${kw(lunedi)} (${data(lunedi, 0)} – ${data(lunedi, 6)})</h2>
     ${ric.length ? ric.map((q, i) => `<div class="riga"><span>${q.tipo === 'ferie' ? '🏖️' : q.tipo === 'permesso' ? '📄' : '⛔'} ${esc(nomeDi(q.dip))} · ${GIORNI[q.giorno]} ${q.tipo}${q.da != null ? ' ' + ora(q.da) + '–' + ora(q.a) : ''}</span><button class="piccolo rosso" data-togli-ric="${i}">Togli</button></div>`).join('') : '<div class="grigio">Nessuna richiesta per questa settimana.</div>'}
     <p><button data-az="richiesta" ${dati.dipendenti.length ? '' : 'disabled'}>＋ Nuova richiesta</button></p>
     <div class="grigio">Le richieste valgono per la settimana scelta in 📋. Dopo averle inserite, rigenera la settimana.</div></div>`;
@@ -339,6 +339,10 @@ document.getElementById('pagina').addEventListener('click', async e => {
     dati.dipendenti = Array.from({ length: 25 }, (_, i) => ({ id: 'd' + i, nome: 'Persona ' + (i + 1), resp: i < 5,
       ore: i >= 23 ? 20 : i % 3 === 0 ? 30 : 40, abilita: [abil[i % 4], 'cassa'].filter((x, j, a) => a.indexOf(x) === j) }));
     salva(); return disegna();
+  }
+  if (az === 'eliminaTutti') {
+    if (!await chiedi(`Eliminare tutti i ${dati.dipendenti.length} dipendenti? Spariscono anche le loro richieste e le settimane generate.`, { si: 'Elimina' })) return;
+    Object.assign(dati, { dipendenti: [], richieste: {}, settimane: {} }); salva(); return disegna();
   }
   if (az === 'esporta') {
     // Il testo della copia: si copia e si incolla in Note o in un messaggio, poi si carica con "Carica copia".
