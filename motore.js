@@ -241,16 +241,18 @@ const fasciaCapo = r => r.fasce.C ?? { inizio: 480, fine: 960 };
 /// La competenza che serve per un'attività: 'resp' = un responsabile, null = la può fare chiunque.
 export function competenzaDi(attivita) {
   const a = attivita.toLowerCase();
-  if (a.includes('responsabile')) return 'resp';
-  if (a.includes('occasioni') || a.includes('food')) return 'food';
+  // Testate e occasioni (surge, fresche) le fa solo un responsabile.
+  if (a.includes('responsabile') || a.includes('testate') || a.includes('occasioni')) return 'resp';
+  if (a.includes('food')) return 'food';
   if (a.includes('bake') || a.includes('pane')) return 'pane';
   if (a.includes('carne')) return null;
   if (/^cassa( automatica| \d)?$/.test(a.trim())) return /cassa 3/.test(a) ? 'resp' : 'cassa';
   return a.trim();
 }
 const eAV = d => String(d.ruolo ?? '').toUpperCase() === 'AV';
-// L'addetto vendita (AV) fa sempre cassa, anche se non è segnata tra le competenze.
-const sa = (d, c) => c == null || (c === 'resp' ? !!d.resp : (c === 'cassa' && eAV(d)) || (d.abilita ?? []).some(x => x.toLowerCase() === c));
+// La cassa la fanno tutti tranne il garzone (GA), anche se non è segnata tra le competenze.
+const sa = (d, c) => c == null || (c === 'resp' ? !!d.resp : c === 'cassa' ? String(d.ruolo ?? '').toUpperCase() !== 'GA'
+  : (d.abilita ?? []).some(x => x.toLowerCase() === c));
 const serveAttivita = (r, g, f) => [...new Set((r.attivita?.[g]?.[f] ?? []).map(competenzaDi).filter(c => c != null))];
 const mancaCompetenza = (piano, dipendenti, r, g, f) => serveAttivita(r, g, f).filter(c =>
   !Object.entries(piano[g]).some(([id, t]) => t.fascia === f && sa(dipendenti.find(d => d.id === id) ?? {}, c)));
@@ -293,6 +295,18 @@ export function agendaTurno(piano, dipendenti, r, g, f) {
   for (const n of ha(a => competenzaDi(a) === 'commissionamento'))
     prova(n, per(presenti.filter(d => sa(d, 'commissionamento') && !d.resp), utile, d => +eAV(d), d => carico(d.id)),
       d => [turno(d.id).inizio, Math.min(turno(d.id).fine, turno(d.id).inizio + DURATA_COMMI)]);
+  // 3b. Testate (responsabile, prima dell'apertura) e occasioni (responsabile, circa 3 ore): prima delle casse.
+  const primoSpazio = (d, durata) => {
+    const t = turno(d.id); let da = t.inizio;
+    for (const x of agenda[d.id]) { if (x.da - da >= durata) break; da = Math.max(da, x.a); }
+    return [da, Math.min(t.fine, da + durata)];
+  };
+  const respInteri = () => presenti.filter(d => d.resp && intero(d));
+  for (const n of ha(a => a.includes('testate')))
+    prova(n, per(respInteri(), d => carico(d.id)), d => [turno(d.id).inizio, aperturaCasse(g)]);
+  for (const n of ha(a => a.includes('occasioni')))
+    prova(n, per(respInteri(), d => primoSpazio(d, DURATA_FOOD)[0], d => carico(d.id)),
+      d => (([da, a]) => a - da >= DURATA_FOOD ? [da, a] : [0, 0])(primoSpazio(d, DURATA_FOOD)));
   // 4. Casse: mattina dall'apertura al cambio turno, pomeriggio dal cambio turno alla chiusura.
   if (ha(a => competenzaDi(a) === 'cassa').length) {
     const [da, a] = f === 'M' ? [aperturaCasse(g), r.cambio.da] : [r.fasce.P.inizio, chiusuraCasse(g)];
@@ -317,14 +331,9 @@ export function agendaTurno(piano, dipendenti, r, g, f) {
     mancano.splice(mancano.indexOf(n), 1);
   }
   // 5. Prima dell'apertura: carne, frutta, testate (chi entra in cassa alle 8 è libero prima).
-  for (const n of ha(a => PRIMA_APERTURA.some(x => a.includes(x))))
+  for (const n of ha(a => PRIMA_APERTURA.some(x => a.includes(x)) && !a.includes('testate')))
     prova(n, per(presenti.filter(d => sa(d, competenzaDi(n))), d => +!!d.resp, d => carico(d.id)), d => [turno(d.id).inizio, aperturaCasse(g)]);
   // 6. Food / occasioni: circa 3 ore, nel primo spazio libero.
-  const primoSpazio = (d, durata) => {
-    const t = turno(d.id); let da = t.inizio;
-    for (const x of agenda[d.id]) { if (x.da - da >= durata) break; da = Math.max(da, x.a); }
-    return [da, Math.min(t.fine, da + durata)];
-  };
   for (const n of ha(a => competenzaDi(a) === 'food'))
     prova(n, per(presenti.filter(d => sa(d, 'food')), d => primoSpazio(d, DURATA_FOOD)[0], d => +!!d.resp),
       d => (([da, a]) => a - da >= DURATA_FOOD ? [da, a] : [0, 0])(primoSpazio(d, DURATA_FOOD)));

@@ -211,8 +211,10 @@ test('agenda: un\'attività alla volta, orari giusti, promo da solo', () => {
           if (/^cassa/i.test(x.attivita) && f === 'M') assert.ok(x.da >= (g === 6 ? 510 : 480) && x.a <= 780);
           if (/^cassa/i.test(x.attivita) && f === 'P') assert.ok(x.a <= (g === 6 ? 1230 : 1260));
           const c = competenzaDi(x.attivita);
-          if (c === 'resp') assert.ok(d.resp);
-          else if (c && c !== 'cassa') assert.ok(d.abilita.some(a => a.toLowerCase() === c), `${x.attivita} a ${d.nome}`);
+          if (/^cassa/i.test(x.attivita)) assert.notEqual(d.ruolo, 'GA');
+          else if (c === 'resp') assert.ok(d.resp, `${x.attivita} a ${d.nome}`);
+          else if (c) assert.ok(d.abilita.some(a => a.toLowerCase() === c), `${x.attivita} a ${d.nome}`);
+          if (/testate/i.test(x.attivita)) assert.ok(!l.some(y => /bake|commission/i.test(y.attivita)));
         }
         if (l.some(x => /promo/i.test(x.attivita))) {
           assert.equal(l.length, 1, 'promo fa solo promo');
