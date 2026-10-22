@@ -98,3 +98,15 @@ test('malattia e maternità escludono la persona per tutto il periodo', () => {
   for (const q of ric) assert.equal(piano[q.giorno][q.dip], undefined);
   assert.deepEqual(verifica(piano, dip, r, ric).errori, []);
 });
+
+test('turno fisso: solo la domenica 06:00–14:10', () => {
+  const dip = [...esempio(), { id: 'dom', nome: 'Domenica', ore: 8, resp: false, abilita: ['cassa'], soloFissi: true,
+    fissi: [{ giorno: 6, inizio: 360, fine: 850 }] }];
+  const r = regoleBase();
+  const { piano } = genera(dip, r);
+  for (let g = 0; g < 6; g++) assert.equal(piano[g].dom, undefined);
+  assert.deepEqual(piano[6].dom, { fascia: 'M', inizio: 360, fine: 850, fisso: true });
+  assert.equal(Object.values(piano[6]).filter(t => t.fascia === 'M').length, r.fabbisogno[6].M);
+  assert.equal(suggerimenti(piano, dip, r, 6).some(s => s.id === 'dom'), false);
+  assert.deepEqual(verifica(piano, dip, r).errori, []);
+});

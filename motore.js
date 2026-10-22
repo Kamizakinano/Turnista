@@ -73,6 +73,14 @@ export function genera(dipendenti, r, richieste = [], precedente = null, numeroS
     [d.id, Math.min(r.maxGiorni, Math.max(1, Math.round((d.ore ?? 40) / 8)))]));
   const scoperti = [];
 
+  // Turni fissi (es. solo la domenica 06:00–14:10): si mettono per primi e non si toccano.
+  for (const d of dipendenti)
+    for (const f of d.fissi ?? []) {
+      if (indisponibile(richieste, d.id, f.giorno, f)) continue;
+      piano[f.giorno][d.id] = { fascia: fasciaDi(f, r), inizio: f.inizio, fine: f.fine, fisso: true };
+      giorniFatti[d.id]++;
+    }
+
   // Prima i giorni più pieni (mercoledì e domenica), poi gli altri.
   const ordine = [0, 1, 2, 3, 4, 5, 6].sort((a, b) => totale(r.fabbisogno[b]) - totale(r.fabbisogno[a]) || a - b);
 
@@ -103,6 +111,9 @@ export function genera(dipendenti, r, richieste = [], precedente = null, numeroS
   return { piano, scoperti };
 }
 
+// La fascia più vicina all'orario di un turno fisso.
+const fasciaDi = (t, r) => ['M', 'I', 'P'].reduce((a, k) => Math.abs(r.fasce[k].inizio - t.inizio) < Math.abs(r.fasce[a].inizio - t.inizio) ? k : a, 'M');
+
 const totale = f => (f.M ?? 0) + (f.I ?? 0) + (f.P ?? 0);
 const contaFascia = (giorno, fascia) => Object.values(giorno).filter(t => t.fascia === fascia).length;
 
@@ -111,7 +122,7 @@ function migliore(dipendenti, piano, g, t, r, richieste, precedente, pref, giorn
   const abilitaPresenti = new Set(Object.entries(piano[g]).filter(([, x]) => x.fascia === t.fascia)
     .flatMap(([id]) => dipendenti.find(d => d.id === id)?.abilita ?? []));
   for (const d of dipendenti) {
-    if (piano[g][d.id]) continue;
+    if (piano[g][d.id] || d.soloFissi) continue;
     if (serveResp && !d.resp) continue;
     if (indisponibile(richieste, d.id, g, t)) continue;
     const limite = oltre ? r.maxGiorni : obiettivo[d.id];
@@ -136,7 +147,7 @@ function migliore(dipendenti, piano, g, t, r, richieste, precedente, pref, giorn
 function riempi(piano, dipendenti, r, richieste, precedente, pref) {
   const mancanti = d => (d.ore ?? 40) - oreSettimana(piano, d.id, r);
   for (let giro = 0; giro < 7; giro++) {
-    const daFare = dipendenti.filter(d => mancanti(d) >= r.durataMin / 60).sort((a, b) => mancanti(b) - mancanti(a));
+    const daFare = dipendenti.filter(d => !d.soloFissi && mancanti(d) >= r.durataMin / 60).sort((a, b) => mancanti(b) - mancanti(a));
     if (!daFare.length) return;
     let aggiunto = false;
     for (const d of daFare) {
@@ -190,7 +201,7 @@ function equilibra(piano, dipendenti, r) {
 /// Prima fa entrare più tardi; solo se non si può fa uscire prima.
 export function accorcia(piano, dipendenti, g, id, r, minuti) {
   const t = piano[g][id];
-  if (!t) return null;
+  if (!t || t.fisso) return null;
   const passi = Math.floor(minuti / r.passo) * r.passo;
   if (passi <= 0) return null;
   for (const modo of ['tardi', 'prima']) {

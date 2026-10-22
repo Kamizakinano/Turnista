@@ -226,7 +226,7 @@ function vistaDipendenti() {
     <p><button class="blu" data-az="nuovo">＋ Nuovo dipendente</button> <button data-az="importaDip">📂 Importa file</button> ${dati.dipendenti.length ? '' : '<button data-az="esempio">Carica 25 di esempio</button>'}</p><div class="carta">`;
   if (!dati.dipendenti.length) h += `<div class="grigio">Nessun dipendente. Aggiungili uno alla volta, oppure carica un esempio con nomi inventati per provare.</div>`;
   for (const d of dati.dipendenti)
-    h += `<div class="riga" data-dip="${d.id}" style="cursor:pointer"><span>${esc(d.nome)} ${d.resp ? '<span class="etichetta resp">RESP</span>' : ''}${d.velocita && d.velocita !== 'normale' ? `<span class="etichetta">${VELOCITA[d.velocita]}</span>` : ''}${(d.abilita ?? []).map(a => `<span class="etichetta">${esc(a)}</span>`).join('')}</span><b>${d.ore} h</b></div>`;
+    h += `<div class="riga" data-dip="${d.id}" style="cursor:pointer"><span>${esc(d.nome)} ${d.resp ? '<span class="etichetta resp">RESP</span>' : ''}${d.fissi?.length ? `<span class="etichetta">📌 ${GIORNI[d.fissi[0].giorno]} ${ora(d.fissi[0].inizio)}–${ora(d.fissi[0].fine)}</span>` : ''}${d.velocita && d.velocita !== 'normale' ? `<span class="etichetta">${VELOCITA[d.velocita]}</span>` : ''}${(d.abilita ?? []).map(a => `<span class="etichetta">${esc(a)}</span>`).join('')}</span><b>${d.ore} h</b></div>`;
   h += `</div>${dati.dipendenti.length ? '<p><button class="rosso" data-az="eliminaTutti">Elimina tutti</button></p>' : ''}<div class="carta"><h2>Malattie e maternità</h2>
     ${dati.assenze.length ? dati.assenze.map((a, i) => `<div class="riga"><span>${a.tipo === 'malattia' ? '🤒' : '🤰'} ${esc(nomeDi(a.dip))} · ${a.tipo} dal ${dataIt(a.dal)} al ${dataIt(a.al)}</span><button class="piccolo rosso" data-togli-ass="${i}">Togli</button></div>`).join('') : '<div class="grigio">Nessuna. Si aggiungono con “Nuova richiesta”.</div>'}</div>
     <input type="file" id="fileDip" style="display:none">
@@ -240,17 +240,31 @@ function vistaDipendenti() {
 function modificaDipendente(id) {
   const d = dati.dipendenti.find(x => x.id === id) ?? { id: 'd' + Date.now(), nome: '', ore: 40, resp: false, abilita: ['cassa'] };
   const tutte = [...new Set(['frutta', 'pane', 'commissionamento', 'cassa', ...dati.dipendenti.flatMap(x => x.abilita ?? [])])];
+  const fx = d.fissi?.[0];
   const f = document.getElementById('finestra');
   f.innerHTML = `<h2>${id ? 'Modifica' : 'Nuovo'} dipendente</h2>
     <div class="campo"><span>Nome</span><input id="dN" value="${esc(d.nome)}" placeholder="Nome e cognome"></div>
     <div class="campo"><span>Ore da contratto</span><input id="dO" type="number" min="4" max="48" value="${d.ore}"></div>
     <div class="campo"><span>Responsabile</span><input id="dR" type="checkbox" ${d.resp ? 'checked' : ''}></div>
     <div class="campo"><span>Velocità</span><select id="dV">${Object.entries(VELOCITA).map(([k, n]) => `<option value="${k}" ${(d.velocita ?? 'normale') === k ? 'selected' : ''}>${n}</option>`).join('')}</select></div>
+    <div class="carta" style="margin:8px 0"><div class="campo"><b>Turno fisso</b><input id="dFx" type="checkbox" ${fx ? 'checked' : ''}></div>
+      <div id="dFxCampi" style="display:${fx ? '' : 'none'}">
+        <div class="campo"><span>Giorno</span><select id="dFG">${GIORNI.map((n, g) => `<option value="${g}" ${(fx?.giorno ?? 6) === g ? 'selected' : ''}>${n}</option>`).join('')}</select></div>
+        <div class="campo"><span>Entra</span><input id="dFI" type="time" step="300" value="${ora(fx?.inizio ?? 360)}"></div>
+        <div class="campo"><span>Esce</span><input id="dFE" type="time" step="300" value="${ora(fx?.fine ?? 850)}"></div>
+        <div class="campo"><span>Lavora solo nei turni fissi</span><input id="dFS" type="checkbox" ${d.soloFissi ?? true ? 'checked' : ''}></div></div></div>
     <div><span>Abilità</span><div id="dA">${tutte.map(a => `<label style="display:inline-block;margin:4px 8px 4px 0"><input type="checkbox" value="${esc(a)}" ${(d.abilita ?? []).includes(a) ? 'checked' : ''}> ${esc(a)}</label>`).join('')}</div>
       <input id="dNuova" placeholder="Altra abilità (facoltativa)"></div>
     <p style="display:flex;gap:8px;justify-content:space-between">${id ? '<button class="rosso" id="dDel">Elimina</button>' : '<span></span>'}
       <span><button data-chiudi>Annulla</button> <button class="blu" id="dOk">Salva</button></span></p>`;
+  f.querySelector('#dFx').onchange = e => f.querySelector('#dFxCampi').style.display = e.target.checked ? '' : 'none';
+  const minuti = v => { const [h, m] = v.split(':'); return +h * 60 + +m; };
   f.querySelector('#dOk').onclick = () => {
+    if (f.querySelector('#dFx').checked) {
+      const inizio = minuti(f.querySelector('#dFI').value), fine = minuti(f.querySelector('#dFE').value);
+      if (!(fine > inizio)) return f.querySelector('#dFE').focus();
+      d.fissi = [{ giorno: +f.querySelector('#dFG').value, inizio, fine }]; d.soloFissi = f.querySelector('#dFS').checked;
+    } else { delete d.fissi; delete d.soloFissi; }
     const nome = f.querySelector('#dN').value.trim();
     if (!nome) return f.querySelector('#dN').focus();
     const abil = [...f.querySelectorAll('#dA input:checked')].map(x => x.value);
