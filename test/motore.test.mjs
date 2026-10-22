@@ -203,9 +203,9 @@ test('agenda: un\'attività alla volta, orari giusti, promo da solo', () => {
     for (const f of ['M', 'P']) {
       const { agenda } = agendaTurno(piano, dip, r, g, f);
       for (const [id, l] of Object.entries(agenda)) {
-        const t = piano[g][id], d = dip.find(x => x.id === id), conOra = l.filter(x => x.da != null);
+        const t = piano[g][id], d = dip.find(x => x.id === id), conOra = l.filter(x => x.da != null && !x.cassa);
         for (let k = 1; k < conOra.length; k++) assert.ok(conOra[k].da >= conOra[k - 1].a, `${g} ${f} ${d.nome} sovrapposte`);
-        for (const x of conOra) {
+        for (const x of l.filter(x => x.da != null)) {
           assert.ok(x.da >= t.inizio && x.a <= t.fine, `${x.attivita} fuori turno`);
           if (/carne|frutta|testate/i.test(x.attivita)) assert.ok(x.a <= (g === 6 ? 510 : 480));
           if (/^cassa/i.test(x.attivita) && f === 'M') assert.ok(x.da >= (g === 6 ? 510 : 480) && x.a <= 780);
@@ -216,6 +216,7 @@ test('agenda: un\'attività alla volta, orari giusti, promo da solo', () => {
           else if (c) assert.ok(d.abilita.some(a => a.toLowerCase() === c), `${x.attivita} a ${d.nome}`);
           if (/testate/i.test(x.attivita)) assert.ok(!l.some(y => /bake|commission/i.test(y.attivita)));
         }
+        assert.ok(l.filter(x => x.cassa).length <= 1, 'al massimo una cassa a testa');
         if (l.some(x => /promo/i.test(x.attivita))) {
           assert.equal(l.length, 1, 'promo fa solo promo');
           assert.ok(t.fine - t.inizio >= r.fasce[f].fine - r.fasce[f].inizio, 'chi fa promo ha il turno intero');
@@ -238,8 +239,9 @@ test('casse agli addetti, il responsabile solo se non c\'è nessun altro; testat
           // un responsabile in cassa solo se tutti gli addetti del turno sono già occupati in quella fascia oraria
           assert.notEqual(d.ruolo, 'CF');
           if (d.resp) assert.ok(l.every(x => !/^Cassa [23]/.test(x.attivita)), 'responsabile in cassa 2 o 3');
-          if (d.resp) assert.ok(Object.entries(agenda).filter(([j]) => !dip.find(x => x.id === j).resp && dip.find(x => x.id === j).ruolo !== 'GA')
-            .every(([, m]) => m.some(y => y.da != null)), 'responsabile in cassa con addetti liberi');
+          // un responsabile in cassa solo se non ci sono abbastanza addetti (esclusi promo e bake) per automatica e cassa 1
+          if (d.resp) assert.ok(Object.entries(agenda).filter(([j, m]) => { const x = dip.find(y => y.id === j);
+            return !x.resp && x.ruolo !== 'GA' && !m.some(y => /promo|^bake$/i.test(y.attivita)); }).length < 2, 'responsabile in cassa con addetti disponibili');
         }
         if (l.some(x => /testate/i.test(x.attivita))) assert.ok(d.resp && d.abilita.includes('Testate'));
         if (l.some(x => x.attivita === 'Bake')) assert.ok(!d.resp);

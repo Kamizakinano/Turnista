@@ -207,7 +207,8 @@ function vistaGiorno(g) {
       ${chiuse.length ? `<div class="riga grigio"><span>${chiuse.join(' e ')}: non aperta (nessuno libero)</span></div>` : ''}
       ${chi.sort((a, b) => piano[g][a[0]].inizio - piano[g][b[0]].inizio || nomeDi(a[0]).localeCompare(nomeDi(b[0]))).map(([id, l]) => `<div class="riga" style="display:block">
         <b>${esc(nomeDi(id))}</b> <span class="grigio">${ora(piano[g][id].inizio)}–${ora(piano[g][id].fine)}</span><br>
-        <span style="font-size:13px">${l.length ? l.map(x => `${x.da != null ? ora(x.da) + ' ' : ''}${esc(x.attivita)}`).join(' → ') : '<span class="grigio">libero</span>'}</span></div>`).join('')}` : ''; }).join('')}
+        <span style="font-size:13px">${(m => m.length ? m.map(x => `${x.da != null ? ora(x.da) + ' ' : ''}${esc(x.attivita)}`).join(' → ') : '')(l.filter(x => !x.cassa))}</span>
+        ${l.filter(x => x.cassa).map(x => `${l.some(y => !y.cassa) ? '<br>' : ''}<span style="font-size:13px;color:var(--blu)">🛒 ${esc(x.attivita)} ${ora(x.da)}–${ora(x.a)}, quando arrivano clienti</span>`).join('')}</div>`).join('')}` : ''; }).join('')}
     <p style="text-align:right"><button data-chiudi>Chiudi</button></p>`;
 }
 

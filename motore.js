@@ -201,7 +201,7 @@ export function genera(dipendenti, r, richieste = [], precedente = null, numeroS
   for (let g = 0; g < 7; g++)
     for (const f of ['M', 'P'])
       for (const [id, l] of Object.entries(agendaTurno(piano, dipendenti, r, g, f).agenda))
-        if (l.some(x => x.da != null && !/^cassa/i.test(x.attivita))) { piano[g][id].protetto = true; protetti.push(piano[g][id]); }
+        if (l.some(x => !x.cassa && x.da === piano[g][id].inizio && competenzaDi(x.attivita) !== 'resp')) { piano[g][id].protetto = true; protetti.push(piano[g][id]); }
   if (r.accorciaDaSolo !== false)
     for (let g = 0; g < 7; g++)
       for (let giro = 0; giro < 20; giro++) {
@@ -277,7 +277,7 @@ export function agendaTurno(piano, dipendenti, r, g, f) {
   const presenti = Object.entries(piano[g]).filter(([, t]) => t.fascia === f).map(([id]) => dipendenti.find(d => d.id === id)).filter(Boolean);
   const turno = id => piano[g][id];
   const agenda = Object.fromEntries(presenti.map(d => [d.id, []]));
-  const libero = (id, da, a) => da >= turno(id).inizio && a <= turno(id).fine && a > da && agenda[id].every(x => x.a <= da || x.da >= a);
+  const libero = (id, da, a) => da >= turno(id).inizio && a <= turno(id).fine && a > da && agenda[id].every(x => x.cassa || x.da == null || x.a <= da || x.da >= a);
   const metti = (id, attivita, da, a) => { agenda[id].push({ attivita, da, a }); agenda[id].sort((x, y) => x.da - y.da); };
   const mancano = [];
   const carico = id => agenda[id].length;
@@ -315,28 +315,7 @@ export function agendaTurno(piano, dipendenti, r, g, f) {
   for (const n of ha(a => a.includes('occasioni')))
     prova(n, per(respInteri(), d => primoSpazio(d, DURATA_FOOD)[0], d => carico(d.id)),
       d => (([da, a]) => a - da >= DURATA_FOOD ? [da, a] : [0, 0])(primoSpazio(d, DURATA_FOOD)));
-  // 4. Casse: mattina dall'apertura al cambio turno, pomeriggio dal cambio turno alla chiusura.
-  if (ha(a => competenzaDi(a) === 'cassa').length) {
-    const [da, a] = f === 'M' ? [aperturaCasse(g), r.cambio.da] : [r.fasce.P.inizio, chiusuraCasse(g)];
-    const finestra = d => [Math.max(da, turno(d.id).inizio), Math.min(a, turno(d.id).fine)];
-    // Le casse le fanno gli addetti. Il responsabile solo come ultima spiaggia, e solo per cassa automatica e cassa 1.
-    const addetti = () => per(presenti.filter(d => !d.resp && sa(d, 'cassa')), d => carico(d.id));
-    for (const n of ['Cassa automatica', 'Cassa 1', 'Cassa 2', 'Cassa 3']) prova(n, addetti(), finestra);
-    // Chi si libera (es. dopo il commi) entra in cassa da quando è libero, se resta almeno un'ora.
-    const quando = d => { let x = finestra(d)[0]; for (const y of agenda[d.id]) if (y.da < a && y.a > x) x = y.a; return x; };
-    const daQuando = (n, candidati) => {
-      const chi = per(candidati.filter(d => !agenda[d.id].some(y => /promo|bake/i.test(y.attivita))), quando)
-        .find(d => finestra(d)[1] - quando(d) >= 60 && libero(d.id, quando(d), finestra(d)[1]));
-      if (!chi) return false;
-      metti(chi.id, n, quando(chi), finestra(chi)[1]); mancano.splice(mancano.indexOf(n), 1); return true;
-    };
-    for (const n of mancano.filter(x => /^Cassa/.test(x))) daQuando(n, presenti.filter(d => !d.resp && sa(d, 'cassa')));
-    for (const n of mancano.filter(x => x === 'Cassa automatica' || x === 'Cassa 1')) daQuando(n, presenti.filter(d => d.resp && sa(d, 'cassa')));
-  }
-  // Cassa 2 e 3 si aprono solo se c'è gente: se nessuno è libero restano chiuse (non è un errore).
-  const chiuse = mancano.filter(n => n === 'Cassa 2' || n === 'Cassa 3');
-  for (const n of chiuse) mancano.splice(mancano.indexOf(n), 1);
-  // 5. Prima dell'apertura: carne, frutta, testate (chi entra in cassa alle 8 è libero prima).
+  // 5. Prima dell'apertura: carne, frutta.
   for (const n of ha(a => PRIMA_APERTURA.some(x => a.includes(x)) && !a.includes('testate')))
     prova(n, per(presenti.filter(d => sa(d, competenzaDi(n))), d => +!!d.resp, d => carico(d.id)), d => [turno(d.id).inizio, aperturaCasse(g)]);
   // 6. Food / occasioni: circa 3 ore, nel primo spazio libero.
@@ -353,6 +332,27 @@ export function agendaTurno(piano, dipendenti, r, g, f) {
     const t = turno(chi.id); let da = t.inizio, a = null;
     for (const x of [...agenda[chi.id], { da: t.fine, a: t.fine }]) { if (x.da - da >= 30) { a = x.da; break; } da = Math.max(da, x.a); }
     metti(chi.id, n, a == null ? null : da, a);
+  }
+  // Casse: non bloccano nessuno. Chi è di cassa fa le sue attività e va in cassa quando arrivano i clienti.
+  // Cassa automatica e 1 agli addetti (il responsabile solo come ultima spiaggia); cassa 2 e 3 agli addetti,
+  // anche a chi fa il bake; mai a chi fa promo. Se non c'è nessuno, cassa 2 e 3 restano chiuse.
+  const chiuse = [];
+  if (ha(a => competenzaDi(a) === 'cassa').length) {
+    const [da, a] = f === 'M' ? [aperturaCasse(g), r.cambio.da] : [r.fasce.P.inizio, chiusuraCasse(g)];
+    const finestra = d => [Math.max(da, turno(d.id).inizio), Math.min(a, turno(d.id).fine)];
+    const fa = (d, re) => agenda[d.id].some(y => re.test(y.attivita));
+    const giaCassa = new Set();
+    const candidati = (conBake, conResp) => per(presenti.filter(d => sa(d, 'cassa') && !giaCassa.has(d.id) && !fa(d, /promo/i) &&
+      (conBake || !fa(d, /^bake$/i)) && (conResp || !d.resp) && finestra(d)[1] - finestra(d)[0] >= 60),
+      d => +!!d.resp, d => +fa(d, /^bake$/i), d => carico(d.id), d => finestra(d)[0]);
+    for (const n of ['Cassa automatica', 'Cassa 1', 'Cassa 2', 'Cassa 3']) {
+      const base = n === 'Cassa automatica' || n === 'Cassa 1';
+      const chi = candidati(!base, false)[0] ?? (base ? candidati(false, true)[0] : null);
+      if (!chi) { (base ? mancano : chiuse).push(n); continue; }
+      giaCassa.add(chi.id);
+      const [x, y] = finestra(chi);
+      agenda[chi.id].push({ attivita: n, da: x, a: y, cassa: true });
+    }
   }
   // Il responsabile che sa fare il bake non lo fa, ma ne è il referente.
   if (ha(a => competenzaDi(a) === 'pane').length) {
