@@ -360,6 +360,11 @@ function guidaCompetenze(i = 0) {
   if (!f.open) f.showModal();
 }
 
+// ---------- Versioni: a ogni aggiornamento del sito se ne aggiunge una in cima (0.01, 0.02, …) ----------
+const VERSIONI = [
+  { v: '0.01', data: '22 ott 2026', note: 'Agenda delle attività per persona; la cassa non blocca (quando arrivano clienti); responsabili in cassa solo come ultima spiaggia.' },
+];
+
 // ---------- Regole ----------
 function vistaRegole() {
   const r = dati.regole;
@@ -384,7 +389,9 @@ function vistaRegole() {
 </div>
     <div class="carta"><h2>Copia dei dati</h2><div class="grigio">I dati restano solo in questo telefono o computer. Salva una copia per sicurezza o per passarli a un altro dispositivo.</div>
       <p><button data-az="esporta">📋 Salva copia</button> <button data-az="importa">📋 Carica copia</button> <button class="rosso" data-az="azzera">Ripristina regole</button></p>
-      <input type="file" id="file" accept="application/json" style="display:none"></div>`;
+      <input type="file" id="file" accept="application/json" style="display:none"></div>
+    <div class="carta"><h2>Versione ${VERSIONI[0].v}</h2><div class="grigio">Se qui non vedi l'ultima versione, ricarica la pagina.</div>
+      ${VERSIONI.map(x => `<div class="riga" style="display:block"><b>${x.v}</b> <span class="grigio">${x.data}</span><br><span style="font-size:13px">${esc(x.note)}</span></div>`).join('')}</div>`;
   return h;
 }
 
