@@ -69,7 +69,7 @@
 
 <script type="module">
 import { GIORNI, FASCE, regoleBase, genera, verifica, suggerimenti, oreGiorno, oreSettimana, orePagate,
-         coperture, ora, assenzeSettimana } from './motore.js';
+         coperture, ora, assenzeSettimana, oreMancanti } from './motore.js';
 
 // Domande e avvisi dentro la pagina (le finestre del browser come confirm() qui non funzionano).
 function chiedi(testo, { si = 'Sì', no = 'Annulla', copia = null, incolla = false } = {}) {
@@ -139,7 +139,13 @@ function vistaSettimana() {
   h += `<div class="carta"><h2>Controlli</h2>
     ${v.errori.length ? v.errori.map(e => `<div class="riga"><span>${esc(e)}</span><span class="no">✖</span></div>`).join('')
       : `<div class="riga"><span>Responsabili, apertura, cambio turno, chiusura, 11 h di stacco, nessuno oltre i giorni del contratto, richieste</span><span class="ok">✔</span></div>`}
-    ${v.mancano.length ? `<div class="riga grigio"><span>${v.mancano.length} persone fanno meno giorni del contratto: i posti della settimana non bastano per tutti (vedi “su” nella griglia).</span></div>` : ''}</div>`;
+    </div>`;
+
+  // Chi resta sotto le ore del contratto
+  const manca = oreMancanti(piano, dati.dipendenti, r, tutteRichieste());
+  if (manca.length) h += `<div class="carta"><h2>Ore mancanti</h2><div class="grigio">${manca.length} ${manca.length === 1 ? 'persona' : 'persone'} sotto contratto</div>
+    ${manca.map(x => `<div class="riga"><span>${esc(x.nome)}<br><span class="grigio">${hm(x.fatte)} su ${hm(x.contratto)}</span></span><b class="no">−${hm(x.manca)}</b></div>`).join('')}
+    <div class="riga"><span><b>Totale mancante</b></span><b class="no">−${hm(manca.reduce((s, x) => s + x.manca, 0))}</b></div></div>`;
 
   // Monte ore per giorno
   h += `<div class="carta"><h2>Ore per giorno</h2>`;

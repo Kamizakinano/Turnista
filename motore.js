@@ -312,3 +312,13 @@ export function assenzeSettimana(assenze = [], lunedi) {
   }
   return out;
 }
+
+/// Chi resta sotto le ore del contratto (le assenze di un giorno intero tolgono la loro parte di contratto).
+export function oreMancanti(piano, dipendenti, r, richieste = []) {
+  return dipendenti.map(d => {
+    const previsti = Math.max(1, giorniPrevisti(d).min);
+    const contratto = (d.ore ?? 40) * Math.max(0, 1 - giorniAssente(richieste, d.id) / previsti);
+    const fatte = oreSettimana(piano, d.id, r);
+    return { id: d.id, nome: d.nome, contratto, fatte, manca: contratto - fatte };
+  }).filter(x => x.manca > 0.01).sort((a, b) => b.manca - a.manca);
+}

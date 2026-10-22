@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { genera, regoleBase, verifica, suggerimenti, oreSettimana, coperture, oreGiorno, accorcia, preferenze, assenzeSettimana, orePagate } from '../motore.js';
+import { genera, regoleBase, verifica, suggerimenti, oreSettimana, coperture, oreGiorno, accorcia, preferenze, assenzeSettimana, orePagate, oreMancanti } from '../motore.js';
 
 // 25 dipendenti di esempio (nomi inventati): 5 responsabili, contratti da 40, 30 e 20 ore.
 export function esempio() {
@@ -182,4 +182,15 @@ test('responsabile dall\'inizio alla fine di ogni turno, anche dopo i tagli; il 
   }
   assert.equal(piano.filter(x => x[dip[0].id]).length, 5);
   assert.deepEqual(verifica(piano, dip, r).errori, []);
+});
+
+test('ore mancanti: chi è sotto contratto, senza contare i giorni di assenza', () => {
+  const dip = negozio(), r = regoleNegozio();
+  const ric = [0, 1, 2, 3, 4, 5, 6].map(g => ({ dip: 'n10', giorno: g, tipo: 'maternità' }));
+  const { piano } = genera(dip, r, ric);
+  const m = oreMancanti(piano, dip, r, ric);
+  assert.ok(m.length > 0);
+  assert.ok(!m.some(x => x.id === 'n10'));
+  for (const x of m) assert.ok(Math.abs(x.contratto - x.fatte - x.manca) < 1e-9 && x.manca > 0);
+  for (let i = 1; i < m.length; i++) assert.ok(m[i - 1].manca >= m[i].manca);
 });
