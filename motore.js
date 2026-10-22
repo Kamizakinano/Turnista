@@ -237,7 +237,7 @@ export function competenzaDi(attivita) {
   if (a.includes('occasioni') || a.includes('food')) return 'food';
   if (a.includes('bake') || a.includes('pane')) return 'pane';
   if (a.includes('carne')) return null;
-  if (/^cassa( automatica| \d)?$/.test(a.trim())) return /cassa [23]/.test(a) ? 'resp' : 'cassa';
+  if (/^cassa( automatica| \d)?$/.test(a.trim())) return /cassa 3/.test(a) ? 'resp' : 'cassa';
   return a.trim();
 }
 const eAV = d => String(d.ruolo ?? '').toUpperCase() === 'AV';
@@ -255,7 +255,9 @@ export function assegnaAttivita(piano, dipendenti, r, g, f) {
   const respPresenti = presenti.filter(d => d.resp);
   const lista = (r.attivita?.[g]?.[f] ?? []).flatMap(nome => competenzaDi(nome) !== 'cassa' ? [{ nome, c: competenzaDi(nome) }] :
     [{ nome: 'Cassa automatica', c: 'cassa', av: true }, { nome: 'Cassa 1', c: 'cassa', av: true },
-     ...respPresenti.slice(0, 2).map((d, i) => ({ nome: 'Cassa ' + (i + 2), c: 'resp', fisso: d.id }))]);
+     // Con due responsabili: cassa 2 e 3 a loro; con uno solo: cassa 2 a un terzo addetto vendita, cassa 3 al responsabile.
+     ...(respPresenti.length >= 2 ? respPresenti.slice(0, 2).map((d, i) => ({ nome: 'Cassa ' + (i + 2), c: 'resp', fisso: d.id }))
+       : [{ nome: 'Cassa 2', c: 'cassa', av: true }, ...respPresenti.map(d => ({ nome: 'Cassa 3', c: 'resp', fisso: d.id }))])]);
   const usati = new Set();
   const capaci = x => x.fisso ? presenti.filter(d => d.id === x.fisso) : x.av
     ? (p => p.length ? p : presenti.filter(d => sa(d, 'cassa') && !usati.has(d.id)))(presenti.filter(d => !d.resp && sa(d, 'cassa') && !usati.has(d.id)))

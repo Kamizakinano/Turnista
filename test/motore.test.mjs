@@ -205,12 +205,12 @@ test('attività: in ogni turno c\'è chi sa fare ogni attività, e ognuna ha una
         assert.ok(a.id, `${g} ${f} ${a.attivita} senza persona`);
         assert.equal(piano[g][a.id].fascia, f);
         const c = competenzaDi(a.attivita), d = dip.find(x => x.id === a.id);
-        if (c === 'resp') assert.ok(d.resp);
+        if (c === 'resp' || a.attivita === 'Cassa 2' && d.resp) assert.ok(d.resp);
         else if (c) assert.ok(d.abilita.some(x => x.toLowerCase() === c), `${a.attivita} a ${d.nome}`);
       }
 });
 
-test('cassa: automatica e cassa 1 agli addetti vendita, cassa 2 e 3 ai responsabili', () => {
+test('cassa: automatica e cassa 1 agli AV; cassa 2 e 3 ai due responsabili, o cassa 2 a un terzo AV se il responsabile è uno', () => {
   const dip = negozio().map((d, i) => ({ ...d, ruolo: d.resp ? 'CM' : 'AV', abilita: d.abilita.filter(a => a !== 'cassa') }));
   const r = regoleNegozio();
   const { piano } = genera(dip, r);
@@ -221,8 +221,9 @@ test('cassa: automatica e cassa 1 agli addetti vendita, cassa 2 e 3 ai responsab
       assert.equal(di('Cassa automatica').ruolo, 'AV');
       assert.equal(di('Cassa 1').ruolo, 'AV');
       assert.notEqual(di('Cassa automatica').id, di('Cassa 1').id);
-      assert.ok(di('Cassa 2').resp);
       const resp = Object.entries(piano[g]).filter(([id, t]) => t.fascia === f && dip.find(d => d.id === id).resp).length;
-      if (resp >= 2) { assert.ok(di('Cassa 3').resp); assert.notEqual(di('Cassa 2').id, di('Cassa 3').id); }
+      assert.ok(di('Cassa 3').resp);
+      if (resp >= 2) { assert.ok(di('Cassa 2').resp); assert.notEqual(di('Cassa 2').id, di('Cassa 3').id); }
+      else { assert.equal(di('Cassa 2').ruolo, 'AV'); assert.equal(new Set(['Cassa automatica', 'Cassa 1', 'Cassa 2'].map(n => di(n).id)).size, 3); }
     }
 });
