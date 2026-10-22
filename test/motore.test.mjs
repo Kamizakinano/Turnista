@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { genera, regoleBase, verifica, suggerimenti, oreSettimana, coperture, oreGiorno, accorcia, preferenze, assenzeSettimana } from '../motore.js';
+import { genera, regoleBase, verifica, suggerimenti, oreSettimana, coperture, oreGiorno, accorcia, preferenze, assenzeSettimana, orePagate } from '../motore.js';
 
 // 25 dipendenti di esempio (nomi inventati): 5 responsabili, contratti da 40, 30 e 20 ore.
 export function esempio() {
@@ -25,12 +25,22 @@ test('la settimana rispetta tutte le regole', () => {
   for (const d of dip) assert.ok(piano.filter(x => x[d.id]).length <= 6);
 });
 
-test('lo straordinario è il minimo possibile', () => {
+test('giorni come da contratto: 40 ore 5, 30 ore 4, 20 ore 3–4', () => {
   const dip = esempio(), r = regoleBase();
   const { piano } = genera(dip, r);
-  const v = verifica(piano, dip, r);
-  console.log('straordinario', v.straordinario, 'ore per giorno', piano.map(g => oreGiorno(g, r)));
-  assert.ok(v.straordinario <= 8, 'straordinario ' + v.straordinario);
+  for (const d of dip) {
+    const n = piano.filter(x => x[d.id]).length;
+    const ok = d.ore === 40 ? n === 5 : d.ore === 30 ? n === 4 : n >= 3 && n <= 4;
+    assert.ok(ok, `${d.nome} (${d.ore} h): ${n} giorni`);
+  }
+  console.log('ore per giorno', piano.map(g => oreGiorno(g, r)));
+});
+
+test('pausa di 10 minuti: mattina e pomeriggio 8 h 20, intermedio 7 h 50', () => {
+  const r = regoleBase();
+  assert.equal(Math.round(orePagate(r.fasce.M, r) * 60), 500);
+  assert.equal(Math.round(orePagate(r.fasce.P, r) * 60), 500);
+  assert.equal(Math.round(orePagate(r.fasce.I, r) * 60), 470);
 });
 
 test('le richieste vengono rispettate', () => {
@@ -106,7 +116,7 @@ test('turno fisso: solo la domenica 06:00–14:10', () => {
   const { piano } = genera(dip, r);
   for (let g = 0; g < 6; g++) assert.equal(piano[g].dom, undefined);
   assert.deepEqual(piano[6].dom, { fascia: 'M', inizio: 360, fine: 850, fisso: true });
-  assert.equal(Object.values(piano[6]).filter(t => t.fascia === 'M').length, r.fabbisogno[6].M);
+  assert.ok(Object.values(piano[6]).filter(t => t.fascia === 'M').length >= r.fabbisogno[6].M);
   assert.equal(suggerimenti(piano, dip, r, 6).some(s => s.id === 'dom'), false);
   assert.deepEqual(verifica(piano, dip, r).errori, []);
 });

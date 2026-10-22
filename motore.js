@@ -7,7 +7,7 @@ export const FASCE = { M: 'Mattina', I: 'Intermedio', P: 'Pomeriggio' };
 export function regoleBase() {
   return {
     fasce: { M: { inizio: 300, fine: 810 }, I: { inizio: 540, fine: 1020 }, P: { inizio: 780, fine: 1290 } },
-    pausa: 30, pausaSopra: 360,          // 30 min di pausa non pagata nei turni più lunghi di 6 ore
+    pausa: 10, pausaSopra: 360,          // 10 min di pausa non pagata nei turni più lunghi di 6 ore
     fabbisogno: [
       { M: 5, I: 1, P: 5 }, { M: 4, I: 1, P: 4 }, { M: 6, I: 1, P: 6 }, { M: 5, I: 1, P: 5 },
       { M: 5, I: 1, P: 5 }, { M: 5, I: 1, P: 5 }, { M: 6, I: 1, P: 6 },
@@ -69,8 +69,7 @@ export function genera(dipendenti, r, richieste = [], precedente = null, numeroS
   const piano = Array.from({ length: 7 }, () => ({}));
   const pref = preferenze(dipendenti, precedente, numeroSettimana);
   const giorniFatti = Object.fromEntries(dipendenti.map(d => [d.id, 0]));
-  const obiettivo = Object.fromEntries(dipendenti.map(d =>
-    [d.id, Math.min(r.maxGiorni, Math.max(1, Math.round((d.ore ?? 40) / 8)))]));
+  const obiettivo = Object.fromEntries(dipendenti.map(d => [d.id, giorniPrevisti(d).min]));
   const scoperti = [];
 
   // Turni fissi (es. solo la domenica 06:00–14:10): si mettono per primi e non si toccano.
@@ -107,7 +106,6 @@ export function genera(dipendenti, r, richieste = [], precedente = null, numeroS
       if (manca > 0) scoperti.push({ giorno: g, fascia, manca });
     }
   riempi(piano, dipendenti, r, richieste, precedente, pref);
-  equilibra(piano, dipendenti, r);
   return { piano, scoperti };
 }
 
@@ -125,7 +123,7 @@ function migliore(dipendenti, piano, g, t, r, richieste, precedente, pref, giorn
     if (piano[g][d.id] || d.soloFissi) continue;
     if (serveResp && !d.resp) continue;
     if (indisponibile(richieste, d.id, g, t)) continue;
-    const limite = oltre ? r.maxGiorni : obiettivo[d.id];
+    const limite = oltre ? Math.min(r.maxGiorni, giorniPrevisti(d).max) : obiettivo[d.id];
     if (giorniFatti[d.id] >= limite) continue;
     if (!rispettaStacco(piano, d.id, g, t, r, precedente)) continue;
     let p = 0;
@@ -143,55 +141,39 @@ function migliore(dipendenti, piano, g, t, r, richieste, precedente, pref, giorn
   return meglio;
 }
 
-// Chi ha ancora ore di contratto da fare viene aggiunto come rinforzo nei giorni dove il monte ore lo permette.
+/// Giorni di lavoro per contratto: 40 ore → 5, 30 → 4, 20 → da 3 a 4; chi ha solo turni fissi fa quelli.
+export function giorniPrevisti(d) {
+  if (d.soloFissi) { const n = d.fissi?.length ?? 0; return { min: n, max: n }; }
+  const ore = d.ore ?? 40;
+  if (ore >= 40) return { min: 5, max: 5 };
+  if (ore >= 30) return { min: 4, max: 4 };
+  if (ore >= 20) return { min: 3, max: 4 };
+  const n = Math.max(1, Math.round(ore / 8)); return { min: n, max: n };
+}
+
+// Giorni in cui la persona è assente tutto il giorno (ferie, malattia, maternità, permesso intero).
+const giorniAssente = (richieste, id) => new Set(richieste.filter(q => q.dip === id && q.da == null && q.tipo !== 'non disponibile').map(q => q.giorno)).size;
+
+// Chi non ha ancora i giorni del contratto viene aggiunto con un turno intero dove il monte ore ha più spazio.
 function riempi(piano, dipendenti, r, richieste, precedente, pref) {
-  const mancanti = d => (d.ore ?? 40) - oreSettimana(piano, d.id, r);
-  for (let giro = 0; giro < 7; giro++) {
-    const daFare = dipendenti.filter(d => !d.soloFissi && mancanti(d) >= r.durataMin / 60).sort((a, b) => mancanti(b) - mancanti(a));
-    if (!daFare.length) return;
-    let aggiunto = false;
-    for (const d of daFare) {
-      // Giorni con più spazio nel monte ore per primi.
-      const giorni = [0, 1, 2, 3, 4, 5, 6].filter(g => !piano[g][d.id] && piano.filter(x => x[d.id]).length < r.maxGiorni)
-        .sort((a, b) => (r.monteOre[b] - oreGiorno(piano[b], r)) - (r.monteOre[a] - oreGiorno(piano[a], r)));
+  for (const d of dipendenti) {
+    if (d.soloFissi) continue;
+    const serve = Math.max(0, giorniPrevisti(d).min - giorniAssente(richieste, d.id));
+    const lenti = (g, fascia) => Object.entries(piano[g]).filter(([id, x]) => x.fascia === fascia &&
+      dipendenti.find(z => z.id === id)?.velocita === 'lento').length;
+    // Chi è lento prima va solo dove ci sono al massimo 2 lenti; se non basta, ovunque.
+    for (const maxLenti of d.velocita === 'lento' ? [1, Infinity] : [Infinity]) {
+      const giorni = [0, 1, 2, 3, 4, 5, 6].sort((a, b) => (r.monteOre[b] - oreGiorno(piano[b], r)) - (r.monteOre[a] - oreGiorno(piano[a], r)));
       for (const g of giorni) {
-        const spazio = Math.min(r.monteOre[g] - oreGiorno(piano[g], r), mancanti(d), 8);
-        if (spazio < r.durataMin / 60) continue;
-        for (const fascia of [pref[d.id], pref[d.id] === 'M' ? 'P' : 'M']) {
-          const base = r.fasce[fascia];
-          // Il rinforzo entra più tardi: il turno finisce all'ora normale e dura quanto serve.
-          let t = { fascia, inizio: base.inizio, fine: base.fine };
-          while (orePagate(t, r) > spazio + 0.01 && t.fine - t.inizio - r.passo >= r.durataMin)
-            t = { ...t, inizio: t.inizio + r.passo };
-          if (orePagate(t, r) > spazio + 0.01) continue;
+        if (piano.filter(x => x[d.id]).length >= serve) break;
+        if (piano[g][d.id]) continue;
+        for (const fascia of [pref[d.id], pref[d.id] === 'M' ? 'P' : 'M', 'I']) {
+          const t = { fascia, inizio: r.fasce[fascia].inizio, fine: r.fasce[fascia].fine };
+          if (lenti(g, fascia) > maxLenti) continue;
           if (indisponibile(richieste, d.id, g, t) || !rispettaStacco(piano, d.id, g, t, r, precedente)) continue;
           piano[g][d.id] = t;
-          aggiunto = true;
           break;
         }
-        if (piano[g][d.id]) break;
-      }
-    }
-    if (!aggiunto) return;
-  }
-}
-
-/// Chi deve ancora fare ore (sotto contratto) e chi ne ha in più.
-export function bilancio(piano, dipendenti, r) {
-  return dipendenti.map(d => ({ id: d.id, nome: d.nome, contratto: d.ore ?? 40, fatte: oreSettimana(piano, d.id, r) }))
-    .map(x => ({ ...x, differenza: x.fatte - x.contratto }));
-}
-
-// Chi supera le ore del contratto entra più tardi (o, se serve, esce prima) finché è in pari.
-function equilibra(piano, dipendenti, r) {
-  for (const d of dipendenti) {
-    let troppo = oreSettimana(piano, d.id, r) - (d.ore ?? 40);
-    for (let g = 0; g < 7 && troppo > 0.01; g++) {
-      while (troppo > 0.01) {
-        const s = accorcia(piano, dipendenti, g, d.id, r, Math.min(troppo * 60, 600));
-        if (!s) break;
-        troppo -= s.ore;
-        piano[g][d.id] = s.dopo;
       }
     }
   }
@@ -277,12 +259,14 @@ export function verifica(piano, dipendenti, r, richieste = [], precedente = null
     }
   }
   for (const d of dipendenti) {
-    const giorni = piano.filter(x => x[d.id]).length;
+    const giorni = piano.filter(x => x[d.id]).length, p = giorniPrevisti(d);
+    const min = Math.max(0, p.min - giorniAssente(richieste, d.id));
     if (giorni > r.maxGiorni) errori.push(`${d.nome}: ${giorni} giorni di lavoro`);
+    else if (giorni < min || giorni > p.max)
+      errori.push(`${d.nome}: ${giorni} giorni invece di ${min === p.max ? min : min + '–' + p.max}`);
   }
-  const straordinario = dipendenti.reduce((s, d) => s + Math.max(0, oreSettimana(piano, d.id, r) - (d.ore ?? 40)), 0);
   const sopraMonte = [0, 1, 2, 3, 4, 5, 6].filter(g => oreGiorno(piano[g], r) > r.monteOre[g] + 0.01);
-  return { errori, straordinario, sopraMonte };
+  return { errori, sopraMonte };
 }
 
 /// Malattie e maternità (dal…al, date AAAA-MM-GG) diventano richieste per i giorni della settimana che inizia `lunedi`.
