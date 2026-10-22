@@ -137,8 +137,8 @@ function vistaSettimana() {
   const v = verifica(piano, dati.dipendenti, r, tutteRichieste(), dati.settimane[chiave(piu(lunedi, -7))]);
   h += `<div class="carta"><h2>Controlli</h2>
     ${v.errori.length ? v.errori.map(e => `<div class="riga"><span>${esc(e)}</span><span class="no">✖</span></div>`).join('')
-      : `<div class="riga"><span>Responsabili, apertura, cambio turno, chiusura, 11 h di stacco, giorni come da contratto, richieste</span><span class="ok">✔</span></div>`}
-    </div>`;
+      : `<div class="riga"><span>Responsabili, apertura, cambio turno, chiusura, 11 h di stacco, nessuno oltre i giorni del contratto, richieste</span><span class="ok">✔</span></div>`}
+    ${v.mancano.length ? `<div class="riga grigio"><span>${v.mancano.length} persone fanno meno giorni del contratto: i posti della settimana non bastano per tutti (vedi “su” nella griglia).</span></div>` : ''}</div>`;
 
   // Monte ore per giorno
   h += `<div class="carta"><h2>Ore per giorno</h2>`;
@@ -174,7 +174,7 @@ function vistaSettimana() {
         h += `<td class="cella ${t.fascia} ${corto ? 'corto' : ''}" data-cella="${d.id}|${g}">${t.fascia}<small>${ora(t.inizio)}<br>${ora(t.fine)}</small></td>`;
       } else h += `<td class="cella ${q?.tipo === 'ferie' ? 'F' : 'R'}" data-cella="${d.id}|${g}">${q ? ({ ferie: 'Ferie', malattia: 'Mal.', 'maternità': 'Mat.' }[q.tipo] ?? 'Rich.') : '–'}</td>`;
     }
-    h += `<td style="text-align:right;white-space:nowrap"><b>${hm(oreSettimana(piano, d.id, r))}</b><br><span class="grigio">${piano.filter(x => x[d.id]).length} gg</span></td></tr>`;
+    h += `<td style="text-align:right;white-space:nowrap"><b>${hm(oreSettimana(piano, d.id, r))}</b><br><span class="grigio">${piano.filter(x => x[d.id]).length}${(m => m ? ' su ' + m.previsti : '')(v.mancano.find(x => x.id === d.id))} gg</span></td></tr>`;
   }
   h += `</table><div class="grigio">M mattina · I intermedio · P pomeriggio · tratteggiato = entra più tardi o esce prima. Tocca una casella per cambiarla.</div></div>`;
 

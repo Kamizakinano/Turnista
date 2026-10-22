@@ -64,12 +64,42 @@ export function preferenze(dipendenti, precedente, numeroSettimana = 0) {
   return pref;
 }
 
-/// Crea la settimana: un turno per posto richiesto, rispettando tutte le regole.
+/// Divide le persone in due squadre per la settimana (M = mattina, P = pomeriggio), così nessuno passa
+/// dal pomeriggio alla mattina del giorno dopo. Si parte dalla rotazione e si equilibrano giorni e responsabili.
+export function squadre(dipendenti, r, richieste = [], precedente = null, numeroSettimana = 0) {
+  const pref = preferenze(dipendenti, precedente, numeroSettimana);
+  const persone = dipendenti.filter(d => !d.soloFissi);
+  const cap = d => Math.min(giorniPrevisti(d).max, r.maxGiorni, 7 - giorniAssente(richieste, d.id));
+  const fissi = f => dipendenti.reduce((s, d) => s + (d.fissi ?? []).filter(x => fasciaDi(x, r) === f).length, 0);
+  const dom = { M: r.fabbisogno.reduce((s, x) => s + (x.M ?? 0), 0) - fissi('M'), P: r.fabbisogno.reduce((s, x) => s + (x.P ?? 0), 0) - fissi('P') };
+  const capDi = (f, soloResp) => persone.filter(d => pref[d.id] === f && (!soloResp || d.resp)).reduce((s, d) => s + cap(d), 0);
+  const squilibrio = () => Math.abs(capDi('M') / Math.max(1, dom.M) - capDi('P') / Math.max(1, dom.P));
+  // Chi non ha una settimana precedente si sposta per primo, poi anche gli altri.
+  const ruotato = id => (precedente ?? []).some(g => g?.[id]);
+  const altra = f => f === 'M' ? 'P' : 'M';
+  for (let giro = 0; giro < persone.length; giro++) {
+    // Ogni squadra deve poter avere un responsabile tutti i giorni (7 giorni di responsabile).
+    const senzaResp = ['M', 'P'].find(f => capDi(f, true) < 7);
+    const verso = senzaResp ?? (capDi('M') / Math.max(1, dom.M) < capDi('P') / Math.max(1, dom.P) ? 'M' : 'P');
+    const prima = squilibrio();
+    const candidati = persone.filter(d => pref[d.id] === altra(verso) && (senzaResp ? d.resp : !d.resp))
+      .sort((a, b) => ruotato(a.id) - ruotato(b.id) || cap(a) - cap(b));
+    const d = candidati.find(d => {
+      pref[d.id] = verso;
+      const ok = senzaResp ? capDi(altra(verso), true) >= 7 : squilibrio() < prima - 1e-9;
+      if (!ok) pref[d.id] = altra(verso);
+      return ok;
+    });
+    if (!d) break;
+  }
+  return pref;
+}
+
+/// Crea la settimana: esattamente le persone scritte nelle regole per ogni giorno e fascia.
 export function genera(dipendenti, r, richieste = [], precedente = null, numeroSettimana = 0) {
   const piano = Array.from({ length: 7 }, () => ({}));
-  const pref = preferenze(dipendenti, precedente, numeroSettimana);
+  const pref = squadre(dipendenti, r, richieste, precedente, numeroSettimana);
   const giorniFatti = Object.fromEntries(dipendenti.map(d => [d.id, 0]));
-  const obiettivo = Object.fromEntries(dipendenti.map(d => [d.id, giorniPrevisti(d).min]));
   const scoperti = [];
 
   // Turni fissi (es. solo la domenica 06:00–14:10): si mettono per primi e non si toccano.
@@ -83,7 +113,7 @@ export function genera(dipendenti, r, richieste = [], precedente = null, numeroS
   // Prima i giorni più pieni (mercoledì e domenica), poi gli altri.
   const ordine = [0, 1, 2, 3, 4, 5, 6].sort((a, b) => totale(r.fabbisogno[b]) - totale(r.fabbisogno[a]) || a - b);
 
-  for (let passo = 0; passo < 2; passo++) {           // al secondo giro si accetta di superare i giorni previsti
+  for (let passo = 0; passo < 2; passo++) {           // al secondo giro si può uscire dalla propria squadra
     for (const g of ordine) {
       for (const fascia of ['M', 'P', 'I']) {
         const serve = r.fabbisogno[g][fascia] ?? 0;
@@ -91,8 +121,8 @@ export function genera(dipendenti, r, richieste = [], precedente = null, numeroS
           const t = { fascia, inizio: r.fasce[fascia].inizio, fine: r.fasce[fascia].fine };
           const serveResp = fascia !== 'I' && !Object.entries(piano[g]).some(([id, x]) =>
             x.fascia === fascia && dipendenti.find(d => d.id === id)?.resp);
-          const scelto = migliore(dipendenti, piano, g, t, r, richieste, precedente, pref, giorniFatti, obiettivo,
-                                  passo === 1, serveResp);
+          const scelto = migliore(dipendenti, piano, g, t, r, richieste, precedente, pref, giorniFatti, passo === 1, serveResp)
+            ?? (serveResp ? migliore(dipendenti, piano, g, t, r, richieste, precedente, pref, giorniFatti, passo === 1, false) : null);
           if (!scelto) break;
           piano[g][scelto.id] = t;
           giorniFatti[scelto.id]++;
@@ -105,7 +135,6 @@ export function genera(dipendenti, r, richieste = [], precedente = null, numeroS
       const manca = (r.fabbisogno[g][fascia] ?? 0) - contaFascia(piano[g], fascia);
       if (manca > 0) scoperti.push({ giorno: g, fascia, manca });
     }
-  riempi(piano, dipendenti, r, richieste, precedente, pref);
   return { piano, scoperti };
 }
 
@@ -115,20 +144,21 @@ const fasciaDi = (t, r) => ['M', 'I', 'P'].reduce((a, k) => Math.abs(r.fasce[k].
 const totale = f => (f.M ?? 0) + (f.I ?? 0) + (f.P ?? 0);
 const contaFascia = (giorno, fascia) => Object.values(giorno).filter(t => t.fascia === fascia).length;
 
-function migliore(dipendenti, piano, g, t, r, richieste, precedente, pref, giorniFatti, obiettivo, oltre, serveResp) {
+function migliore(dipendenti, piano, g, t, r, richieste, precedente, pref, giorniFatti, fuoriSquadra, serveResp) {
   let meglio = null, punti = -Infinity;
   const abilitaPresenti = new Set(Object.entries(piano[g]).filter(([, x]) => x.fascia === t.fascia)
     .flatMap(([id]) => dipendenti.find(d => d.id === id)?.abilita ?? []));
   for (const d of dipendenti) {
     if (piano[g][d.id] || d.soloFissi) continue;
     if (serveResp && !d.resp) continue;
+    if (!fuoriSquadra && t.fascia !== 'I' && pref[d.id] !== t.fascia) continue;
     if (indisponibile(richieste, d.id, g, t)) continue;
-    const limite = oltre ? Math.min(r.maxGiorni, giorniPrevisti(d).max) : obiettivo[d.id];
-    if (giorniFatti[d.id] >= limite) continue;
+    const previsti = giorniPrevisti(d);
+    if (giorniFatti[d.id] >= Math.min(r.maxGiorni, previsti.max)) continue;
     if (!rispettaStacco(piano, d.id, g, t, r, precedente)) continue;
-    let p = 0;
-    if (pref[d.id] === t.fascia || t.fascia === 'I') p += 10;
-    p += (obiettivo[d.id] - giorniFatti[d.id]) * 4;          // prima chi deve ancora fare più giorni
+    // Prima chi è più indietro rispetto ai giorni del suo contratto: i giorni si dividono in proporzione.
+    let p = -giorniFatti[d.id] / Math.max(1, previsti.min) * 40;
+    if (pref[d.id] !== t.fascia && t.fascia !== 'I') p -= 50;
     if (!serveResp && d.resp) p -= 3;                         // i responsabili servono dove manca un responsabile
     p += (d.abilita ?? []).filter(a => !abilitaPresenti.has(a)).length * 2;  // varietà di mansioni nel turno
     // Velocità: i lenti si distribuiscono tra i turni, i veloci vanno dove ci sono già lenti.
@@ -153,31 +183,6 @@ export function giorniPrevisti(d) {
 
 // Giorni in cui la persona è assente tutto il giorno (ferie, malattia, maternità, permesso intero).
 const giorniAssente = (richieste, id) => new Set(richieste.filter(q => q.dip === id && q.da == null && q.tipo !== 'non disponibile').map(q => q.giorno)).size;
-
-// Chi non ha ancora i giorni del contratto viene aggiunto con un turno intero dove il monte ore ha più spazio.
-function riempi(piano, dipendenti, r, richieste, precedente, pref) {
-  for (const d of dipendenti) {
-    if (d.soloFissi) continue;
-    const serve = Math.max(0, giorniPrevisti(d).min - giorniAssente(richieste, d.id));
-    const lenti = (g, fascia) => Object.entries(piano[g]).filter(([id, x]) => x.fascia === fascia &&
-      dipendenti.find(z => z.id === id)?.velocita === 'lento').length;
-    // Chi è lento prima va solo dove ci sono al massimo 2 lenti; se non basta, ovunque.
-    for (const maxLenti of d.velocita === 'lento' ? [1, Infinity] : [Infinity]) {
-      const giorni = [0, 1, 2, 3, 4, 5, 6].sort((a, b) => (r.monteOre[b] - oreGiorno(piano[b], r)) - (r.monteOre[a] - oreGiorno(piano[a], r)));
-      for (const g of giorni) {
-        if (piano.filter(x => x[d.id]).length >= serve) break;
-        if (piano[g][d.id]) continue;
-        for (const fascia of [pref[d.id], pref[d.id] === 'M' ? 'P' : 'M', 'I']) {
-          const t = { fascia, inizio: r.fasce[fascia].inizio, fine: r.fasce[fascia].fine };
-          if (lenti(g, fascia) > maxLenti) continue;
-          if (indisponibile(richieste, d.id, g, t) || !rispettaStacco(piano, d.id, g, t, r, precedente)) continue;
-          piano[g][d.id] = t;
-          break;
-        }
-      }
-    }
-  }
-}
 
 /// Prova ad accorciare il turno di una persona di al massimo `minuti`, rispettando apertura, chiusura e cambio turno.
 /// Prima fa entrare più tardi; solo se non si può fa uscire prima.
@@ -239,7 +244,7 @@ export function suggerimenti(piano, dipendenti, r, g) {
 
 /// Tutti i controlli della settimana, da mostrare con ✔ o ✖.
 export function verifica(piano, dipendenti, r, richieste = [], precedente = null) {
-  const errori = [];
+  const errori = [], mancano = [];
   const nome = id => dipendenti.find(d => d.id === id)?.nome ?? id;
   for (let g = 0; g < 7; g++) {
     const giorno = piano[g];
@@ -262,11 +267,11 @@ export function verifica(piano, dipendenti, r, richieste = [], precedente = null
     const giorni = piano.filter(x => x[d.id]).length, p = giorniPrevisti(d);
     const min = Math.max(0, p.min - giorniAssente(richieste, d.id));
     if (giorni > r.maxGiorni) errori.push(`${d.nome}: ${giorni} giorni di lavoro`);
-    else if (giorni < min || giorni > p.max)
-      errori.push(`${d.nome}: ${giorni} giorni invece di ${min === p.max ? min : min + '–' + p.max}`);
+    else if (giorni > p.max) errori.push(`${d.nome}: ${giorni} giorni, il contratto ne prevede ${p.max}`);
+    if (giorni < min) mancano.push({ id: d.id, nome: d.nome, giorni, previsti: min });
   }
   const sopraMonte = [0, 1, 2, 3, 4, 5, 6].filter(g => oreGiorno(piano[g], r) > r.monteOre[g] + 0.01);
-  return { errori, sopraMonte };
+  return { errori, sopraMonte, mancano };
 }
 
 /// Malattie e maternità (dal…al, date AAAA-MM-GG) diventano richieste per i giorni della settimana che inizia `lunedi`.

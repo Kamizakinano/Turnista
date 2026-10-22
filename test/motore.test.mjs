@@ -25,15 +25,47 @@ test('la settimana rispetta tutte le regole', () => {
   for (const d of dip) assert.ok(piano.filter(x => x[d.id]).length <= 6);
 });
 
-test('giorni come da contratto: 40 ore 5, 30 ore 4, 20 ore 3–4', () => {
-  const dip = esempio(), r = regoleBase();
-  const { piano } = genera(dip, r);
-  for (const d of dip) {
-    const n = piano.filter(x => x[d.id]).length;
-    const ok = d.ore === 40 ? n === 5 : d.ore === 30 ? n === 4 : n >= 3 && n <= 4;
-    assert.ok(ok, `${d.nome} (${d.ore} h): ${n} giorni`);
+// Come il punto vendita reale (nomi inventati): 6 da 40 ore (responsabili), 15 da 30, 3 da 20, lenti e veloci.
+function negozio() {
+  return Array.from({ length: 24 }, (_, i) => ({ id: 'n' + i, nome: 'Collega ' + (i + 1),
+    ore: i < 6 ? 40 : i < 21 ? 30 : 20, resp: i < 6, velocita: i % 3 === 0 ? 'lento' : i % 5 === 0 ? 'veloce' : 'normale',
+    abilita: ['cassa', i % 2 ? 'pane' : 'commissionamento'] }));
+}
+function regoleNegozio() {
+  const r = regoleBase();
+  r.fabbisogno = [{ M: 6, I: 0, P: 5 }, { M: 4, I: 1, P: 4 }, { M: 6, I: 0, P: 6 }, { M: 5, I: 0, P: 5 },
+                  { M: 5, I: 1, P: 5 }, { M: 6, I: 1, P: 5 }, { M: 6, I: 1, P: 6 }];
+  r.monteOre = [90, 72, 96, 90, 90, 100, 96];
+  return r;
+}
+
+test('le persone per fascia sono esattamente quelle delle regole', () => {
+  for (const [dip, r] of [[esempio(), regoleBase()], [negozio(), regoleNegozio()]]) {
+    const { piano, scoperti } = genera(dip, r);
+    assert.deepEqual(scoperti, []);
+    for (let g = 0; g < 7; g++)
+      for (const f of ['M', 'I', 'P'])
+        assert.equal(Object.values(piano[g]).filter(t => t.fascia === f).length, r.fabbisogno[g][f] ?? 0, `giorno ${g} ${f}`);
+    assert.deepEqual(verifica(piano, dip, r).errori, []);
   }
-  console.log('ore per giorno', piano.map(g => oreGiorno(g, r)));
+});
+
+test('martedì: 4 di mattina, 1 intermedio, 4 alla chiusura', () => {
+  const dip = negozio(), r = regoleNegozio();
+  const { piano } = genera(dip, r);
+  const c = coperture(piano[1], dip, r);
+  assert.equal(c.apertura, 4);
+  assert.equal(c.chiusura, 4);
+});
+
+test('i giorni si dividono in proporzione al contratto, senza superarlo', () => {
+  const dip = negozio(), r = regoleNegozio();
+  const { piano } = genera(dip, r);
+  const quota = d => piano.filter(x => x[d.id]).length / (d.ore >= 40 ? 5 : d.ore >= 30 ? 4 : 3);
+  for (const d of dip) assert.ok(piano.filter(x => x[d.id]).length <= (d.ore >= 40 ? 5 : 4), d.nome);
+  const q = dip.map(quota);
+  console.log('quota dei giorni da contratto', Math.min(...q).toFixed(2), '–', Math.max(...q).toFixed(2));
+  assert.ok(Math.max(...q) - Math.min(...q) <= 0.5);
 });
 
 test('pausa di 10 minuti: mattina e pomeriggio 8 h 20, intermedio 7 h 50', () => {
