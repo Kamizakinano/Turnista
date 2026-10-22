@@ -122,6 +122,11 @@ function migliore(dipendenti, piano, g, t, r, richieste, precedente, pref, giorn
     p += (obiettivo[d.id] - giorniFatti[d.id]) * 4;          // prima chi deve ancora fare più giorni
     if (!serveResp && d.resp) p -= 3;                         // i responsabili servono dove manca un responsabile
     p += (d.abilita ?? []).filter(a => !abilitaPresenti.has(a)).length * 2;  // varietà di mansioni nel turno
+    // Velocità: i lenti si distribuiscono tra i turni, i veloci vanno dove ci sono già lenti.
+    const lenti = Object.entries(piano[g]).filter(([id, x]) => x.fascia === t.fascia &&
+      dipendenti.find(z => z.id === id)?.velocita === 'lento').length;
+    if (d.velocita === 'lento') p -= lenti * 6;
+    if (d.velocita === 'veloce') p += lenti * 3;
     if (p > punti) { punti = p; meglio = d; }
   }
   return meglio;
@@ -267,4 +272,15 @@ export function verifica(piano, dipendenti, r, richieste = [], precedente = null
   const straordinario = dipendenti.reduce((s, d) => s + Math.max(0, oreSettimana(piano, d.id, r) - (d.ore ?? 40)), 0);
   const sopraMonte = [0, 1, 2, 3, 4, 5, 6].filter(g => oreGiorno(piano[g], r) > r.monteOre[g] + 0.01);
   return { errori, straordinario, sopraMonte };
+}
+
+/// Malattie e maternità (dal…al, date AAAA-MM-GG) diventano richieste per i giorni della settimana che inizia `lunedi`.
+export function assenzeSettimana(assenze = [], lunedi) {
+  const out = [];
+  for (let g = 0; g < 7; g++) {
+    const d = new Date(lunedi + 'T12:00:00Z'); d.setUTCDate(d.getUTCDate() + g);
+    const giorno = d.toISOString().slice(0, 10);
+    for (const a of assenze) if (a.dal <= giorno && giorno <= a.al) out.push({ dip: a.dip, giorno: g, tipo: a.tipo });
+  }
+  return out;
 }

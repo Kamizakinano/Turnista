@@ -69,7 +69,7 @@
 
 <script type="module">
 import { GIORNI, FASCE, regoleBase, genera, verifica, suggerimenti, oreGiorno, oreSettimana, orePagate,
-         coperture, bilancio, ora } from './motore.js';
+         coperture, bilancio, ora, assenzeSettimana } from './motore.js';
 
 // Domande e avvisi dentro la pagina (le finestre del browser come confirm() qui non funzionano).
 function chiedi(testo, { si = 'Sì', no = 'Annulla', copia = null, incolla = false } = {}) {
@@ -95,6 +95,7 @@ let dati;
 try { dati = JSON.parse(localStorage.getItem(CHIAVE)) ?? null; } catch { dati = null; }
 dati ??= { dipendenti: [], regole: regoleBase(), richieste: {}, settimane: {} };
 dati.regole = { ...regoleBase(), ...dati.regole };
+dati.assenze ??= [];
 const salva = () => { try { localStorage.setItem(CHIAVE, JSON.stringify(dati)); } catch {} };
 
 let tab = 'settimana';
@@ -107,12 +108,16 @@ const piu = (d, n) => { const x = new Date(d); x.setDate(x.getDate() + n); retur
 const data = (d, n) => piu(d, n).toLocaleDateString('it-IT', { day: 'numeric', month: 'short' });
 const kw = d => { const t = new Date(Date.UTC(d.getFullYear(), d.getMonth(), d.getDate())); const g = t.getUTCDay() || 7;
   t.setUTCDate(t.getUTCDate() + 4 - g); return Math.ceil(((t - Date.UTC(t.getUTCFullYear(), 0, 1)) / 864e5 + 1) / 7); };
+const dataIt = iso => new Date(iso + 'T12:00:00').toLocaleDateString('it-IT', { day: 'numeric', month: 'short', year: 'numeric' });
 const esc = s => String(s).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
 const hm = h => { const m = Math.round(h * 60); return m < 60 ? `${m} min` : `${Math.floor(m / 60)} h${m % 60 ? ' ' + (m % 60) + ' min' : ''}`; };
 const opzioniOre = (sel, da = 300, a = 1290) => { let s = ''; for (let m = da; m <= a; m += 30) s += `<option value="${m}" ${m === sel ? 'selected' : ''}>${ora(m)}</option>`; return s; };
 
 const pianoSettimana = () => dati.settimane[chiave(lunedi)];
 const richiesteSettimana = () => dati.richieste[chiave(lunedi)] ??= [];
+// Richieste della settimana più malattie e maternità che la toccano.
+const tutteRichieste = () => [...richiesteSettimana(), ...assenzeSettimana(dati.assenze, chiave(lunedi))];
+const VELOCITA = { veloce: '🐇 veloce', normale: 'normale', lento: '🐢 lento' };
 const nomeDi = id => dati.dipendenti.find(d => d.id === id)?.nome ?? '?';
 
 // ---------- Settimana ----------
@@ -127,7 +132,7 @@ function vistaSettimana() {
   if (!dati.dipendenti.length) return h + `<div class="carta avviso">Prima inserisci i dipendenti nella scheda 👥 Dipendenti.</div>`;
   if (!piano) return h + `<div class="carta grigio">Tocca “Genera” per creare i turni di questa settimana.</div>`;
 
-  const v = verifica(piano, dati.dipendenti, r, richiesteSettimana(), dati.settimane[chiave(piu(lunedi, -7))]);
+  const v = verifica(piano, dati.dipendenti, r, tutteRichieste(), dati.settimane[chiave(piu(lunedi, -7))]);
   h += `<div class="carta"><h2>Controlli</h2>
     ${v.errori.length ? v.errori.map(e => `<div class="riga"><span>${esc(e)}</span><span class="no">✖</span></div>`).join('')
       : `<div class="riga"><span>Responsabili, apertura, cambio turno, chiusura, 11 h di stacco, max ${r.maxGiorni} giorni, richieste</span><span class="ok">✔</span></div>`}
@@ -155,7 +160,7 @@ function vistaSettimana() {
 
   // Griglia persone × giorni
   h += `<div class="carta griglia"><h2>Turni</h2><table><tr><th></th>${GIORNI.map((n, g) => `<th>${n}<br>${piu(lunedi, g).getDate()}</th>`).join('')}<th>ore</th></tr>`;
-  const ric = richiesteSettimana();
+  const ric = tutteRichieste();
   for (const d of dati.dipendenti) {
     h += `<tr><td class="nome">${esc(d.nome)}${d.resp ? ' <span class="etichetta resp">R</span>' : ''}</td>`;
     for (let g = 0; g < 7; g++) {
@@ -165,7 +170,7 @@ function vistaSettimana() {
         const base = r.fasce[t.fascia];
         const corto = t.inizio !== base.inizio || t.fine !== base.fine;
         h += `<td class="cella ${t.fascia} ${corto ? 'corto' : ''}" data-cella="${d.id}|${g}">${t.fascia}<small>${ora(t.inizio)}<br>${ora(t.fine)}</small></td>`;
-      } else h += `<td class="cella ${q?.tipo === 'ferie' ? 'F' : 'R'}" data-cella="${d.id}|${g}">${q ? (q.tipo === 'ferie' ? 'Ferie' : 'Rich.') : '–'}</td>`;
+      } else h += `<td class="cella ${q?.tipo === 'ferie' ? 'F' : 'R'}" data-cella="${d.id}|${g}">${q ? ({ ferie: 'Ferie', malattia: 'Mal.', 'maternità': 'Mat.' }[q.tipo] ?? 'Rich.') : '–'}</td>`;
     }
     const o = oreSettimana(piano, d.id, r), diff = o - d.ore;
     h += `<td style="text-align:right;white-space:nowrap"><b>${Math.round(o * 10) / 10}</b>/${d.ore}${Math.abs(diff) > 0.01 ? `<br><span class="${diff > 0 ? 'no' : 'grigio'}">${diff > 0 ? '+' : ''}${Math.round(diff * 10) / 10}</span>` : ''}</td></tr>`;
@@ -218,11 +223,14 @@ function modificaCella(id, g) {
 function vistaDipendenti() {
   const ric = richiesteSettimana();
   let h = `<h1>Dipendenti <span class="grigio">${dati.dipendenti.length}</span></h1>
-    <p><button class="blu" data-az="nuovo">＋ Nuovo dipendente</button> ${dati.dipendenti.length ? '' : '<button data-az="esempio">Carica 25 di esempio</button>'}</p><div class="carta">`;
+    <p><button class="blu" data-az="nuovo">＋ Nuovo dipendente</button> <button data-az="importaDip">📂 Importa file</button> ${dati.dipendenti.length ? '' : '<button data-az="esempio">Carica 25 di esempio</button>'}</p><div class="carta">`;
   if (!dati.dipendenti.length) h += `<div class="grigio">Nessun dipendente. Aggiungili uno alla volta, oppure carica un esempio con nomi inventati per provare.</div>`;
   for (const d of dati.dipendenti)
-    h += `<div class="riga" data-dip="${d.id}" style="cursor:pointer"><span>${esc(d.nome)} ${d.resp ? '<span class="etichetta resp">RESP</span>' : ''}${(d.abilita ?? []).map(a => `<span class="etichetta">${esc(a)}</span>`).join('')}</span><b>${d.ore} h</b></div>`;
-  h += `</div>${dati.dipendenti.length ? '<p><button class="rosso" data-az="eliminaTutti">Elimina tutti</button></p>' : ''}<div class="carta"><h2>Richieste · sett. ${kw(lunedi)} (${data(lunedi, 0)} – ${data(lunedi, 6)})</h2>
+    h += `<div class="riga" data-dip="${d.id}" style="cursor:pointer"><span>${esc(d.nome)} ${d.resp ? '<span class="etichetta resp">RESP</span>' : ''}${d.velocita && d.velocita !== 'normale' ? `<span class="etichetta">${VELOCITA[d.velocita]}</span>` : ''}${(d.abilita ?? []).map(a => `<span class="etichetta">${esc(a)}</span>`).join('')}</span><b>${d.ore} h</b></div>`;
+  h += `</div>${dati.dipendenti.length ? '<p><button class="rosso" data-az="eliminaTutti">Elimina tutti</button></p>' : ''}<div class="carta"><h2>Malattie e maternità</h2>
+    ${dati.assenze.length ? dati.assenze.map((a, i) => `<div class="riga"><span>${a.tipo === 'malattia' ? '🤒' : '🤰'} ${esc(nomeDi(a.dip))} · ${a.tipo} dal ${dataIt(a.dal)} al ${dataIt(a.al)}</span><button class="piccolo rosso" data-togli-ass="${i}">Togli</button></div>`).join('') : '<div class="grigio">Nessuna. Si aggiungono con “Nuova richiesta”.</div>'}</div>
+    <input type="file" id="fileDip" style="display:none">
+    <div class="carta"><h2>Richieste · sett. ${kw(lunedi)} (${data(lunedi, 0)} – ${data(lunedi, 6)})</h2>
     ${ric.length ? ric.map((q, i) => `<div class="riga"><span>${q.tipo === 'ferie' ? '🏖️' : q.tipo === 'permesso' ? '📄' : '⛔'} ${esc(nomeDi(q.dip))} · ${GIORNI[q.giorno]} ${q.tipo}${q.da != null ? ' ' + ora(q.da) + '–' + ora(q.a) : ''}</span><button class="piccolo rosso" data-togli-ric="${i}">Togli</button></div>`).join('') : '<div class="grigio">Nessuna richiesta per questa settimana.</div>'}
     <p><button data-az="richiesta" ${dati.dipendenti.length ? '' : 'disabled'}>＋ Nuova richiesta</button></p>
     <div class="grigio">Le richieste valgono per la settimana scelta in 📋. Dopo averle inserite, rigenera la settimana.</div></div>`;
@@ -237,6 +245,7 @@ function modificaDipendente(id) {
     <div class="campo"><span>Nome</span><input id="dN" value="${esc(d.nome)}" placeholder="Nome e cognome"></div>
     <div class="campo"><span>Ore da contratto</span><input id="dO" type="number" min="4" max="48" value="${d.ore}"></div>
     <div class="campo"><span>Responsabile</span><input id="dR" type="checkbox" ${d.resp ? 'checked' : ''}></div>
+    <div class="campo"><span>Velocità</span><select id="dV">${Object.entries(VELOCITA).map(([k, n]) => `<option value="${k}" ${(d.velocita ?? 'normale') === k ? 'selected' : ''}>${n}</option>`).join('')}</select></div>
     <div><span>Abilità</span><div id="dA">${tutte.map(a => `<label style="display:inline-block;margin:4px 8px 4px 0"><input type="checkbox" value="${esc(a)}" ${(d.abilita ?? []).includes(a) ? 'checked' : ''}> ${esc(a)}</label>`).join('')}</div>
       <input id="dNuova" placeholder="Altra abilità (facoltativa)"></div>
     <p style="display:flex;gap:8px;justify-content:space-between">${id ? '<button class="rosso" id="dDel">Elimina</button>' : '<span></span>'}
@@ -246,7 +255,7 @@ function modificaDipendente(id) {
     if (!nome) return f.querySelector('#dN').focus();
     const abil = [...f.querySelectorAll('#dA input:checked')].map(x => x.value);
     const nuova = f.querySelector('#dNuova').value.trim(); if (nuova) abil.push(nuova);
-    Object.assign(d, { nome, ore: +f.querySelector('#dO').value || 40, resp: f.querySelector('#dR').checked, abilita: abil });
+    Object.assign(d, { nome, ore: +f.querySelector('#dO').value || 40, resp: f.querySelector('#dR').checked, velocita: f.querySelector('#dV').value, abilita: abil });
     if (!dati.dipendenti.includes(d)) dati.dipendenti.push(d);
     salva(); f.close(); disegna();
   };
@@ -262,13 +271,26 @@ function nuovaRichiesta() {
   f.innerHTML = `<h2>Nuova richiesta</h2>
     <div class="campo"><span>Chi</span><select id="qD">${dati.dipendenti.map(d => `<option value="${d.id}">${esc(d.nome)}</option>`).join('')}</select></div>
     <div class="campo"><span>Giorno</span><select id="qG">${GIORNI.map((n, g) => `<option value="${g}">${n} ${data(lunedi, g)}</option>`).join('')}<option value="tutti">Tutta la settimana</option></select></div>
-    <div class="campo"><span>Tipo</span><select id="qT"><option value="ferie">Ferie</option><option value="permesso">Permesso</option><option value="non disponibile">Non disponibile</option></select></div>
+    <div class="campo"><span>Tipo</span><select id="qT"><option value="ferie">Ferie</option><option value="permesso">Permesso</option><option value="non disponibile">Non disponibile</option><option value="malattia">🤒 Malattia</option><option value="maternità">🤰 Maternità</option></select></div>
+    <div id="qLunga" style="display:none"><div class="campo"><span>Dal</span><input id="qDal" type="date" value="${chiave(lunedi)}"></div>
+      <div class="campo"><span>Al</span><input id="qAl" type="date" value="${chiave(piu(lunedi, 6))}"></div></div>
     <div class="campo"><span>Solo in un orario</span><input id="qO" type="checkbox"></div>
     <div id="qOre" style="display:none"><div class="campo"><span>Dalle</span><select id="qDa">${opzioniOre(840, 0, 1440)}</select></div>
       <div class="campo"><span>Alle</span><select id="qA">${opzioniOre(1290, 0, 1440)}</select></div></div>
     <p style="display:flex;gap:8px;justify-content:flex-end"><button data-chiudi>Annulla</button><button class="blu" id="qOk">Aggiungi</button></p>`;
+  const lunga = () => ['malattia', 'maternità'].includes(f.querySelector('#qT').value);
+  f.querySelector('#qT').onchange = () => { const l = lunga();
+    f.querySelector('#qLunga').style.display = l ? '' : 'none';
+    for (const id of ['#qG', '#qO']) f.querySelector(id).closest('.campo').style.display = l ? 'none' : '';
+    if (l) { f.querySelector('#qO').checked = false; f.querySelector('#qOre').style.display = 'none'; } };
   f.querySelector('#qO').onchange = e => f.querySelector('#qOre').style.display = e.target.checked ? '' : 'none';
   f.querySelector('#qOk').onclick = () => {
+    if (lunga()) {
+      const dal = f.querySelector('#qDal').value, al = f.querySelector('#qAl').value;
+      if (!dal || !al || al < dal) return f.querySelector('#qAl').focus();
+      dati.assenze.push({ dip: f.querySelector('#qD').value, tipo: f.querySelector('#qT').value, dal, al });
+      salva(); f.close(); return disegna();
+    }
     const giorni = f.querySelector('#qG').value === 'tutti' ? [0, 1, 2, 3, 4, 5, 6] : [+f.querySelector('#qG').value];
     const conOre = f.querySelector('#qO').checked;
     for (const g of giorni) richiesteSettimana().push({ dip: f.querySelector('#qD').value, giorno: g, tipo: f.querySelector('#qT').value,
@@ -276,6 +298,40 @@ function nuovaRichiesta() {
     salva(); f.close(); disegna();
   };
   f.showModal();
+}
+
+// ---------- Importa file dei dipendenti ----------
+// Il file contiene solo nomi e sigle (AV addetto vendita, GA garzone, CM responsabile, CF capo filiale):
+// dopo l'importazione si chiede per ognuno cosa sa fare.
+const RUOLI = { AV: ['cassa'], GA: ['commissionamento'], CM: ['cassa'], CF: ['cassa'] };
+function daFile(x, i) {
+  const ruolo = String(x.ruolo ?? '').toUpperCase();
+  return { id: 'd' + Date.now() + '_' + i, nome: String(x.nome).trim(), ruolo, ore: +x.ore || 40,
+    resp: x.resp ?? (ruolo === 'CM' || ruolo === 'CF'), velocita: x.velocita ?? 'normale', abilita: x.abilita ?? RUOLI[ruolo] ?? ['cassa'] };
+}
+
+function guidaCompetenze(i = 0) {
+  const lista = dati.dipendenti, d = lista[i];
+  const f = document.getElementById('finestra');
+  if (!d) { f.close(); disegna(); return avvisa('Fatto: competenze salvate per tutti.'); }
+  const tutte = [...new Set(['cassa', 'frutta', 'pane', 'commissionamento', ...lista.flatMap(x => x.abilita ?? [])])];
+  f.innerHTML = `<div class="grigio">${i + 1} di ${lista.length}${d.ruolo ? ' · ' + esc(d.ruolo) : ''}</div><h2>${esc(d.nome)}</h2>
+    <div><b>Cosa sa fare?</b><div id="gA">${tutte.map(a => `<label style="display:inline-block;margin:6px 10px 6px 0"><input type="checkbox" value="${esc(a)}" ${(d.abilita ?? []).includes(a) ? 'checked' : ''}> ${esc(a)}</label>`).join('')}</div>
+      <input id="gNuova" placeholder="Altra competenza (facoltativa)"></div>
+    <div class="campo"><span>Ore da contratto</span><input id="gO" type="number" min="4" max="48" value="${d.ore}"></div>
+    <div class="campo"><span>Responsabile</span><input id="gR" type="checkbox" ${d.resp ? 'checked' : ''}></div>
+    <div class="campo"><span>Velocità</span><select id="gV">${Object.entries(VELOCITA).map(([k, n]) => `<option value="${k}" ${(d.velocita ?? 'normale') === k ? 'selected' : ''}>${n}</option>`).join('')}</select></div>
+    <p style="display:flex;gap:8px;justify-content:space-between"><button id="gSalta">Salta</button>
+      <span>${i ? '<button id="gIndietro">‹</button> ' : ''}<button class="blu" id="gOk">Avanti ›</button></span></p>`;
+  f.querySelector('#gOk').onclick = () => {
+    const abil = [...f.querySelectorAll('#gA input:checked')].map(x => x.value);
+    const nuova = f.querySelector('#gNuova').value.trim(); if (nuova) abil.push(nuova);
+    Object.assign(d, { abilita: abil, ore: +f.querySelector('#gO').value || 40, resp: f.querySelector('#gR').checked, velocita: f.querySelector('#gV').value });
+    salva(); guidaCompetenze(i + 1);
+  };
+  f.querySelector('#gSalta').onclick = () => guidaCompetenze(i + 1);
+  if (i) f.querySelector('#gIndietro').onclick = () => guidaCompetenze(i - 1);
+  if (!f.open) f.showModal();
 }
 
 // ---------- Regole ----------
@@ -311,14 +367,14 @@ document.querySelector('.tab').onclick = e => { const b = e.target.closest('butt
 document.getElementById('finestra').addEventListener('click', e => { if (e.target.closest('[data-chiudi]')) e.currentTarget.close(); });
 
 document.getElementById('pagina').addEventListener('click', async e => {
-  const el = e.target.closest('[data-az],[data-cella],[data-giorno],[data-dip],[data-togli-ric]');
+  const el = e.target.closest('[data-az],[data-cella],[data-giorno],[data-dip],[data-togli-ric],[data-togli-ass]');
   if (!el) return;
   const az = el.dataset.az;
   if (az === 'prec' || az === 'succ') { lunedi = piu(lunedi, az === 'prec' ? -7 : 7); return disegna(); }
   if (az === 'genera') {
     if (pianoSettimana() && !await chiedi('Rifare la settimana? Le modifiche a mano andranno perse.', { si: 'Rifai' })) return;
     const prec = dati.settimane[chiave(piu(lunedi, -7))];
-    const { piano, scoperti } = genera(dati.dipendenti, dati.regole, richiesteSettimana(), prec, kw(lunedi));
+    const { piano, scoperti } = genera(dati.dipendenti, dati.regole, tutteRichieste(), prec, kw(lunedi));
     dati.settimane[chiave(lunedi)] = piano; salva(); disegna();
     if (scoperti.length) avvisa('Non ci sono abbastanza persone per: ' + scoperti.map(s => `${GIORNI[s.giorno]} ${FASCE[s.fascia].toLowerCase()} (mancano ${s.manca})`).join(', '));
     return;
@@ -340,9 +396,11 @@ document.getElementById('pagina').addEventListener('click', async e => {
       ore: i >= 23 ? 20 : i % 3 === 0 ? 30 : 40, abilita: [abil[i % 4], 'cassa'].filter((x, j, a) => a.indexOf(x) === j) }));
     salva(); return disegna();
   }
+  if (az === 'importaDip') return document.getElementById('fileDip').click();
+  if (el.dataset.togliAss) { dati.assenze.splice(+el.dataset.togliAss, 1); salva(); return disegna(); }
   if (az === 'eliminaTutti') {
     if (!await chiedi(`Eliminare tutti i ${dati.dipendenti.length} dipendenti? Spariscono anche le loro richieste e le settimane generate.`, { si: 'Elimina' })) return;
-    Object.assign(dati, { dipendenti: [], richieste: {}, settimane: {} }); salva(); return disegna();
+    Object.assign(dati, { dipendenti: [], richieste: {}, settimane: {}, assenze: [] }); salva(); return disegna();
   }
   if (az === 'esporta') {
     // Il testo della copia: si copia e si incolla in Note o in un messaggio, poi si carica con "Carica copia".
@@ -362,6 +420,17 @@ document.getElementById('pagina').addEventListener('click', async e => {
 
 document.getElementById('pagina').addEventListener('change', async e => {
   const el = e.target;
+  if (el.id === 'fileDip' && el.files[0]) {
+    try {
+      const x = JSON.parse(await el.files[0].text()), lista = Array.isArray(x) ? x : x.dipendenti;
+      if (!Array.isArray(lista) || !lista.every(p => p?.nome)) throw 0;
+      if (dati.dipendenti.length && !await chiedi(`Sostituire i ${dati.dipendenti.length} dipendenti attuali con i ${lista.length} del file?`, { si: 'Sostituisci' })) return;
+      Object.assign(dati, { dipendenti: lista.map(daFile), richieste: {}, settimane: {}, assenze: [] }); salva(); disegna();
+      guidaCompetenze(0);
+    } catch { avvisa('Il file non è un elenco di dipendenti di Turnista.'); }
+    finally { el.value = ''; }
+    return;
+  }
   if (el.id === 'file' && el.files[0]) {
     try { const nuovi = JSON.parse(await el.files[0].text()); if (!Array.isArray(nuovi.dipendenti)) throw 0;
       if (await chiedi('Sostituire i dati di questo dispositivo con la copia?')) { dati = { ...nuovi, regole: { ...regoleBase(), ...nuovi.regole } }; salva(); disegna(); }

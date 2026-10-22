@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { genera, regoleBase, verifica, suggerimenti, oreSettimana, coperture, oreGiorno, accorcia, preferenze } from '../motore.js';
+import { genera, regoleBase, verifica, suggerimenti, oreSettimana, coperture, oreGiorno, accorcia, preferenze, assenzeSettimana } from '../motore.js';
 
 // 25 dipendenti di esempio (nomi inventati): 5 responsabili, contratti da 40, 30 e 20 ore.
 export function esempio() {
@@ -72,4 +72,29 @@ test('monte ore superato: i tagli rispettano apertura e chiusura', () => {
   assert.ok(c.ok);
   // prima entrano più tardi, poi escono prima
   assert.ok(s.every(x => x.modo === 'tardi') || s.findIndex(x => x.modo === 'prima') > 0);
+});
+
+test('i lenti si distribuiscono tra i turni', () => {
+  const dip = esempio().map((d, i) => ({ ...d, velocita: i % 4 === 1 ? 'lento' : i % 4 === 2 ? 'veloce' : 'normale' }));
+  const r = regoleBase();
+  const { piano } = genera(dip, r);
+  assert.deepEqual(verifica(piano, dip, r).errori, []);
+  const lento = new Set(dip.filter(d => d.velocita === 'lento').map(d => d.id));
+  for (let g = 0; g < 7; g++)
+    for (const f of ['M', 'P']) {
+      const n = Object.entries(piano[g]).filter(([id, t]) => t.fascia === f && lento.has(id)).length;
+      assert.ok(n <= 2, `giorno ${g} ${f}: ${n} lenti`);
+    }
+});
+
+test('malattia e maternità escludono la persona per tutto il periodo', () => {
+  const assenze = [{ dip: 'd3', tipo: 'maternità', dal: '2026-10-01', al: '2027-02-28' },
+                   { dip: 'd7', tipo: 'malattia', dal: '2026-10-21', al: '2026-10-23' }];
+  const ric = assenzeSettimana(assenze, '2026-10-19');
+  assert.equal(ric.filter(q => q.dip === 'd3').length, 7);
+  assert.deepEqual(ric.filter(q => q.dip === 'd7').map(q => q.giorno), [2, 3, 4]);
+  const dip = esempio(), r = regoleBase();
+  const { piano } = genera(dip, r, ric);
+  for (const q of ric) assert.equal(piano[q.giorno][q.dip], undefined);
+  assert.deepEqual(verifica(piano, dip, r, ric).errori, []);
 });
