@@ -201,9 +201,10 @@ function vistaGiorno(g) {
     <div class="riga"><span>Cambio turno ${ora(r.cambio.da)}–${ora(r.cambio.a)}</span><b class="${c.cambio >= r.cambio.min && c.respCambio ? 'ok' : 'no'}">${c.cambio}${c.respCambio ? ', con resp.' : ', senza resp.'}</b></div>
     <div class="riga"><span>Alla chiusura (${ora(a)})</span><b class="${c.chiusura >= r.minChiusura ? 'ok' : 'no'}">${c.chiusura} (min ${r.minChiusura})</b></div>
     <div class="riga"><span>Ore del giorno</span><b>${hm(oreGiorno(piano[g], r))} / ${r.monteOre[g]} h</b></div>
-    ${['M', 'P'].map(f => { const { agenda, mancano } = agendaTurno(piano, dati.dipendenti, r, g, f); const chi = Object.entries(agenda);
+    ${['M', 'P'].map(f => { const { agenda, mancano, chiuse } = agendaTurno(piano, dati.dipendenti, r, g, f); const chi = Object.entries(agenda);
       return chi.length ? `<h2 style="margin-top:12px">Attività ${FASCE[f].toLowerCase()}</h2>
       ${mancano.map(n => `<div class="riga"><span class="no">⚠️ ${esc(n)}: nessuno libero</span></div>`).join('')}
+      ${chiuse.length ? `<div class="riga grigio"><span>${chiuse.join(' e ')}: non aperta (nessuno libero)</span></div>` : ''}
       ${chi.sort((a, b) => piano[g][a[0]].inizio - piano[g][b[0]].inizio || nomeDi(a[0]).localeCompare(nomeDi(b[0]))).map(([id, l]) => `<div class="riga" style="display:block">
         <b>${esc(nomeDi(id))}</b> <span class="grigio">${ora(piano[g][id].inizio)}–${ora(piano[g][id].fine)}</span><br>
         <span style="font-size:13px">${l.length ? l.map(x => `${x.da != null ? ora(x.da) + ' ' : ''}${esc(x.attivita)}`).join(' → ') : '<span class="grigio">libero</span>'}</span></div>`).join('')}` : ''; }).join('')}

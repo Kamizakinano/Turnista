@@ -196,6 +196,12 @@ export function genera(dipendenti, r, richieste = [], precedente = null, numeroS
           !dipendenti.find(d => d.id === id).resp).sort(([a], [b]) => dipendenti.find(d => d.id === a).abilita.length - dipendenti.find(d => d.id === b).abilita.length)[0];
         if (chi) chi[1].promo = true;
       }
+  // Chi fa bake, commi o le attività dall'arrivo non si accorcia: si accorcia chi va in cassa.
+  const protetti = [];
+  for (let g = 0; g < 7; g++)
+    for (const f of ['M', 'P'])
+      for (const [id, l] of Object.entries(agendaTurno(piano, dipendenti, r, g, f).agenda))
+        if (l.some(x => x.da != null && !/^cassa/i.test(x.attivita))) { piano[g][id].protetto = true; protetti.push(piano[g][id]); }
   if (r.accorciaDaSolo !== false)
     for (let g = 0; g < 7; g++)
       for (let giro = 0; giro < 20; giro++) {
@@ -203,6 +209,7 @@ export function genera(dipendenti, r, richieste = [], precedente = null, numeroS
         if (!s.length) break;
         for (const x of s) piano[g][x.id] = x.dopo;
       }
+  for (const t of protetti) delete t.protetto;
   return { piano, scoperti };
 }
 
@@ -242,7 +249,7 @@ const fasciaCapo = r => r.fasce.C ?? { inizio: 480, fine: 960 };
 export function competenzaDi(attivita) {
   const a = attivita.toLowerCase();
   // Testate e occasioni (surge, fresche) le fa solo un responsabile.
-  if (a.includes('responsabile') || a.includes('testate') || a.includes('occasioni')) return 'resp';
+  if (a.includes('responsabile') || a.includes('occasioni')) return 'resp';
   if (a.includes('food')) return 'food';
   if (a.includes('bake') || a.includes('pane')) return 'pane';
   if (a.includes('carne')) return null;
@@ -251,8 +258,9 @@ export function competenzaDi(attivita) {
 }
 const eAV = d => String(d.ruolo ?? '').toUpperCase() === 'AV';
 // La cassa la fanno tutti tranne il garzone (GA), anche se non è segnata tra le competenze.
+// I responsabili sanno fare tutti la frutta.
 const sa = (d, c) => c == null || (c === 'resp' ? !!d.resp : c === 'cassa' ? String(d.ruolo ?? '').toUpperCase() !== 'GA'
-  : (d.abilita ?? []).some(x => x.toLowerCase() === c));
+  : (c === 'frutta' && d.resp) || (d.abilita ?? []).some(x => x.toLowerCase() === c));
 const serveAttivita = (r, g, f) => [...new Set((r.attivita?.[g]?.[f] ?? []).map(competenzaDi).filter(c => c != null))];
 const mancaCompetenza = (piano, dipendenti, r, g, f) => serveAttivita(r, g, f).filter(c =>
   !Object.entries(piano[g]).some(([id, t]) => t.fascia === f && sa(dipendenti.find(d => d.id === id) ?? {}, c)));
@@ -303,7 +311,7 @@ export function agendaTurno(piano, dipendenti, r, g, f) {
   };
   const respInteri = () => presenti.filter(d => d.resp && intero(d));
   for (const n of ha(a => a.includes('testate')))
-    prova(n, per(respInteri(), d => carico(d.id)), d => [turno(d.id).inizio, aperturaCasse(g)]);
+    prova(n, per(respInteri().filter(d => sa(d, 'testate')), d => carico(d.id)), d => [turno(d.id).inizio, aperturaCasse(g)]);
   for (const n of ha(a => a.includes('occasioni')))
     prova(n, per(respInteri(), d => primoSpazio(d, DURATA_FOOD)[0], d => carico(d.id)),
       d => (([da, a]) => a - da >= DURATA_FOOD ? [da, a] : [0, 0])(primoSpazio(d, DURATA_FOOD)));
@@ -311,14 +319,10 @@ export function agendaTurno(piano, dipendenti, r, g, f) {
   if (ha(a => competenzaDi(a) === 'cassa').length) {
     const [da, a] = f === 'M' ? [aperturaCasse(g), r.cambio.da] : [r.fasce.P.inizio, chiusuraCasse(g)];
     const finestra = d => [Math.max(da, turno(d.id).inizio), Math.min(a, turno(d.id).fine)];
-    const resp = per(presenti.filter(d => d.resp && intero(d)), d => carico(d.id));
-    // Prima gli addetti vendita; solo se non ce ne sono liberi, un responsabile in più o chi fa il bake.
+    // Tutte le casse agli addetti; il responsabile solo se non c'è nessun altro (occasionalmente).
     const av = () => [...per(presenti.filter(d => !d.resp && sa(d, 'cassa')), d => carico(d.id)),
-      ...per(presenti.filter(d => d.resp && !resp.slice(0, 2).includes(d)), d => carico(d.id))];
-    prova('Cassa automatica', av(), finestra);
-    prova('Cassa 1', av(), finestra);
-    if (resp.length >= 2) { prova('Cassa 2', [resp[0]], finestra); prova('Cassa 3', [resp[1]], finestra); }
-    else { prova('Cassa 2', av(), finestra); if (resp.length) prova('Cassa 3', [resp[0]], finestra); }
+      ...per(presenti.filter(d => d.resp && sa(d, 'cassa')), d => carico(d.id))];
+    for (const n of ['Cassa automatica', 'Cassa 1', 'Cassa 2', 'Cassa 3']) prova(n, av(), finestra);
   }
   // Casse rimaste scoperte: chi si libera (es. dopo il commi) entra in cassa da quando è libero, se resta almeno un'ora.
   for (const n of mancano.filter(x => /^Cassa/.test(x))) {
@@ -330,6 +334,9 @@ export function agendaTurno(piano, dipendenti, r, g, f) {
     metti(chi.id, n, quando(chi), Math.min(a, turno(chi.id).fine));
     mancano.splice(mancano.indexOf(n), 1);
   }
+  // Cassa 2 e 3 si aprono solo se c'è gente: se nessuno è libero restano chiuse (non è un errore).
+  const chiuse = mancano.filter(n => n === 'Cassa 2' || n === 'Cassa 3');
+  for (const n of chiuse) mancano.splice(mancano.indexOf(n), 1);
   // 5. Prima dell'apertura: carne, frutta, testate (chi entra in cassa alle 8 è libero prima).
   for (const n of ha(a => PRIMA_APERTURA.some(x => a.includes(x)) && !a.includes('testate')))
     prova(n, per(presenti.filter(d => sa(d, competenzaDi(n))), d => +!!d.resp, d => carico(d.id)), d => [turno(d.id).inizio, aperturaCasse(g)]);
@@ -348,8 +355,13 @@ export function agendaTurno(piano, dipendenti, r, g, f) {
     for (const x of [...agenda[chi.id], { da: t.fine, a: t.fine }]) { if (x.da - da >= 30) { a = x.da; break; } da = Math.max(da, x.a); }
     metti(chi.id, n, a == null ? null : da, a);
   }
+  // Il responsabile che sa fare il bake non lo fa, ma ne è il referente.
+  if (ha(a => competenzaDi(a) === 'pane').length) {
+    const ref = per(presenti.filter(d => d.resp && sa(d, 'pane')), d => carico(d.id))[0];
+    if (ref) metti(ref.id, 'Referente bake', null, null);
+  }
   for (const id in agenda) agenda[id].sort((x, y) => (x.da ?? 9999) - (y.da ?? 9999));
-  return { agenda, mancano };
+  return { agenda, mancano, chiuse };
 }
 
 /// Chi fa ogni attività del turno (con l'orario, se ce l'ha).
@@ -406,12 +418,14 @@ const giorniAssente = (richieste, id) => new Set(richieste.filter(q => q.dip ===
 /// Prima fa entrare più tardi; solo se non si può fa uscire prima.
 export function accorcia(piano, dipendenti, g, id, r, minuti) {
   const t = piano[g][id];
-  if (!t || t.fisso || t.promo) return null;
+  if (!t || t.fisso || t.promo || t.protetto) return null;
   const passi = Math.floor(minuti / r.passo) * r.passo;
   if (passi <= 0) return null;
   for (const modo of ['tardi', 'prima']) {
     for (let m = passi; m >= r.passo; m -= r.passo) {
       const dopo = modo === 'tardi' ? { ...t, inizio: t.inizio + m } : { ...t, fine: t.fine - m };
+      // Di mattina si entra al più tardi all'apertura delle casse (08:00, domenica 08:30).
+      if (modo === 'tardi' && t.fascia === 'M' && dopo.inizio > aperturaCasse(g)) continue;
       if (dopo.fine - dopo.inizio < r.durataMin) continue;
       const prova = { ...piano[g], [id]: dopo };
       if (!coperture(prova, dipendenti, r).ok) continue;

@@ -224,23 +224,24 @@ test('agenda: un\'attività alla volta, orari giusti, promo da solo', () => {
     }
 });
 
-test('cassa: automatica e cassa 1 agli AV; cassa 2 e 3 ai due responsabili, o cassa 2 a un terzo AV se il responsabile è uno', () => {
-  const dip = negozio().map((d, i) => ({ ...d, ruolo: d.resp ? 'CM' : 'AV', abilita: d.abilita.filter(a => a !== 'cassa') }));
+test('casse agli addetti, il responsabile solo se non c\'è nessun altro; testate a un responsabile che le sa fare', () => {
+  const dip = negozio().map(d => ({ ...d, ruolo: d.resp ? 'CM' : 'AV' })); dip[23].ruolo = 'GA';
   const r = regoleNegozio();
   const { piano } = genera(dip, r);
-  assert.deepEqual(verifica(piano, dip, r).errori, []);
   for (let g = 0; g < 7; g++)
     for (const f of ['M', 'P']) {
-      // Solo dove le persone bastano per bake, commi e quattro casse.
-      const nTurno = Object.entries(piano[g]).filter(([, t]) => t.fascia === f), nResp = nTurno.filter(([id]) => dip.find(d => d.id === id).resp).length;
-      if (nTurno.length - nResp < 4 + (nResp < 2) || r.attivita[g][f].some(x => /promo/i.test(x))) continue;
-      const a = assegnaAttivita(piano, dip, r, g, f), di = n => dip.find(d => d.id === a.find(x => x.attivita === n)?.id);
-      assert.equal(di('Cassa automatica').ruolo, 'AV');
-      assert.equal(di('Cassa 1').ruolo, 'AV');
-      assert.notEqual(di('Cassa automatica').id, di('Cassa 1').id);
-      const resp = Object.entries(piano[g]).filter(([id, t]) => t.fascia === f && dip.find(d => d.id === id).resp).length;
-      assert.ok(di('Cassa 3').resp);
-      if (resp >= 2) { assert.ok(di('Cassa 2').resp); assert.notEqual(di('Cassa 2').id, di('Cassa 3').id); }
-      else { assert.equal(di('Cassa 2').ruolo, 'AV'); assert.equal(new Set(['Cassa automatica', 'Cassa 1', 'Cassa 2'].map(n => di(n).id)).size, 3); }
+      const { agenda, chiuse } = agendaTurno(piano, dip, r, g, f);
+      for (const [id, l] of Object.entries(agenda)) {
+        const d = dip.find(x => x.id === id);
+        if (l.some(x => /^cassa/i.test(x.attivita))) {
+          assert.notEqual(d.ruolo, 'GA');
+          // un responsabile in cassa solo se tutti gli addetti del turno sono già occupati in quella fascia oraria
+          if (d.resp) assert.ok(Object.entries(agenda).filter(([j]) => !dip.find(x => x.id === j).resp && dip.find(x => x.id === j).ruolo !== 'GA')
+            .every(([, m]) => m.some(y => y.da != null)), 'responsabile in cassa con addetti liberi');
+        }
+        if (l.some(x => /testate/i.test(x.attivita))) assert.ok(d.resp && d.abilita.includes('Testate'));
+        if (l.some(x => x.attivita === 'Bake')) assert.ok(!d.resp);
+      }
+      for (const n of chiuse) assert.ok(n === 'Cassa 2' || n === 'Cassa 3');
     }
 });
