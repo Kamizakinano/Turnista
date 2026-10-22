@@ -10,6 +10,7 @@ Web app (HTML + JavaScript, senza librerie) per creare i turni settimanali di un
 ## Regole dei turni (decise con l'utente)
 - Turni fissi: mattina 05:00–13:30, intermedio 09:00–17:00, pomeriggio 13:00–21:30; pausa non pagata di 10 minuti (M e P = 8 h 20 pagate, I = 7 h 50): non è straordinario.
 - Persone per fascia: le decide l'utente in Regole e sono legge (esattamente quelle, mai di più).
+- In ogni turno (M e P) un responsabile (CM) dall'inizio alla fine: mai accorciato. Il capo filiale (CF) fa sempre 08:00–16:00, in più rispetto alle persone per fascia, e non conta come responsabile del turno.
 - Almeno un responsabile per turno; al cambio turno 13:00–13:30 almeno 2 persone con un responsabile.
 - Almeno 4 all'apertura (05:00) e 4 alla chiusura (21:30).
 - Massimo 6 giorni di lavoro, 11 ore di stacco tra un turno e l'altro.

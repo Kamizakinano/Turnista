@@ -42,7 +42,7 @@
   td.nome { white-space: nowrap; font-weight: 600; padding-right: 6px; position: sticky; left: 0; background: var(--carta); }
   td.cella { text-align: center; border-radius: 7px; padding: 4px 2px; min-width: 52px; cursor: pointer; line-height: 1.15; }
   td.cella small { display: block; font-size: 10px; opacity: .9; }
-  .M { background: var(--M); color: #fff; } .I { background: var(--I); color: #fff; } .P { background: var(--P); color: #fff; }
+  .M { background: var(--M); color: #fff; } .I { background: var(--I); color: #fff; } .P { background: var(--P); color: #fff; } .C { background: var(--blu); color: #fff; }
   .R { background: var(--R); color: var(--testo); } .F { background: var(--F); color: #fff; }
   .corto { outline: 2px dashed var(--rosso); outline-offset: -2px; }
   .etichetta { display: inline-block; border-radius: 6px; padding: 1px 6px; font-size: 11px; font-weight: 700; background: var(--tasto); margin: 1px; }
@@ -95,6 +95,7 @@ let dati;
 try { dati = JSON.parse(localStorage.getItem(CHIAVE)) ?? null; } catch { dati = null; }
 dati ??= { dipendenti: [], regole: regoleBase(), richieste: {}, settimane: {} };
 dati.regole = { ...regoleBase(), ...dati.regole };
+dati.regole.fasce = { ...regoleBase().fasce, ...dati.regole.fasce };
 dati.assenze ??= [];
 // Pausa portata da 30 a 10 minuti per tutti (una volta sola, poi si cambia da Regole).
 if (!dati.pausa10) { dati.regole.pausa = 10; dati.pausa10 = true; }
@@ -176,7 +177,7 @@ function vistaSettimana() {
     }
     h += `<td style="text-align:right;white-space:nowrap"><b>${hm(oreSettimana(piano, d.id, r))}</b><br><span class="grigio">${piano.filter(x => x[d.id]).length}${(m => m ? ' su ' + m.previsti : '')(v.mancano.find(x => x.id === d.id))} gg</span></td></tr>`;
   }
-  h += `</table><div class="grigio">M mattina · I intermedio · P pomeriggio · tratteggiato = entra più tardi o esce prima. Tocca una casella per cambiarla.</div></div>`;
+  h += `</table><div class="grigio">M mattina · I intermedio · P pomeriggio · C capo · tratteggiato = entra più tardi o esce prima. Tocca una casella per cambiarla.</div></div>`;
 
   return h;
 }
@@ -352,7 +353,7 @@ function vistaRegole() {
   let h = `<h1>Regole</h1><div class="carta griglia"><h2>Persone per fascia</h2><table><tr><th></th>${GIORNI.map(n => `<th>${n}</th>`).join('')}</tr>`;
   for (const k of ['M', 'I', 'P']) h += `<tr><td class="nome">${FASCE[k]}</td>${GIORNI.map((_, g) => `<td>${num(`fabbisogno.${g}.${k}`, r.fabbisogno[g][k], 0, 20)}</td>`).join('')}</tr>`;
   h += `<tr><td class="nome">Monte ore</td>${GIORNI.map((_, g) => `<td>${num(`monteOre.${g}`, r.monteOre[g], 0, 400)}</td>`).join('')}</tr></table></div>
-    <div class="carta"><h2>Orari dei turni</h2><div class="grigio">La finestra in cui può stare il turno.</div>${['M', 'I', 'P'].map(k => `<div class="campo"><span>${FASCE[k]}</span><span>
+    <div class="carta"><h2>Orari dei turni</h2><div class="grigio">La finestra in cui può stare il turno. Il capo filiale (CF) fa sempre il suo orario.</div>${['M', 'I', 'P', 'C'].map(k => `<div class="campo"><span>${FASCE[k]}</span><span>
       <select data-regola="fasce.${k}.inizio">${opzioniOre(r.fasce[k].inizio, 240, 1380)}</select> – <select data-regola="fasce.${k}.fine">${opzioniOre(r.fasce[k].fine, 240, 1410)}</select></span></div>`).join('')}
       <div class="campo"><span>Pausa non pagata (min)</span>${num('pausa', r.pausa, 0, 90)}</div>
       <div class="campo"><span>Turno più corto (ore)</span><input type="number" data-regola="durataMin" data-ore value="${r.durataMin / 60}" min="2" max="8"></div>

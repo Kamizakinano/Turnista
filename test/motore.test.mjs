@@ -166,3 +166,20 @@ test('accorcia da solo: ogni giorno resta nel monte ore, senza scoprire i turni'
   }
   assert.deepEqual(verifica(piano, dip, r).errori, []);
 });
+
+test('responsabile dall\'inizio alla fine di ogni turno, anche dopo i tagli; il capo sempre 08:00–16:00', () => {
+  const dip = negozio(); dip[0].ruolo = 'CF';
+  const r = regoleNegozio();
+  const { piano } = genera(dip, r);
+  for (let g = 0; g < 7; g++) {
+    for (const f of ['M', 'P'])
+      assert.ok(Object.entries(piano[g]).some(([id, t]) => t.fascia === f && t.inizio === r.fasce[f].inizio &&
+        t.fine === r.fasce[f].fine && dip.find(d => d.id === id).resp), `giorno ${g} ${f}`);
+    const capo = piano[g][dip[0].id];
+    if (capo) assert.deepEqual([capo.fascia, capo.inizio, capo.fine], ['C', 480, 960]);
+    for (const f of ['M', 'I', 'P'])
+      assert.equal(Object.values(piano[g]).filter(t => t.fascia === f).length, r.fabbisogno[g][f] ?? 0);
+  }
+  assert.equal(piano.filter(x => x[dip[0].id]).length, 5);
+  assert.deepEqual(verifica(piano, dip, r).errori, []);
+});

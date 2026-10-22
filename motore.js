@@ -2,11 +2,11 @@
 // Orari in minuti dalla mezzanotte (05:00 = 300, 21:30 = 1290).
 
 export const GIORNI = ['Lun', 'Mar', 'Mer', 'Gio', 'Ven', 'Sab', 'Dom'];
-export const FASCE = { M: 'Mattina', I: 'Intermedio', P: 'Pomeriggio' };
+export const FASCE = { M: 'Mattina', I: 'Intermedio', P: 'Pomeriggio', C: 'Capo' };
 
 export function regoleBase() {
   return {
-    fasce: { M: { inizio: 300, fine: 810 }, I: { inizio: 540, fine: 1020 }, P: { inizio: 780, fine: 1290 } },
+    fasce: { M: { inizio: 300, fine: 810 }, I: { inizio: 540, fine: 1020 }, P: { inizio: 780, fine: 1290 }, C: { inizio: 480, fine: 960 } },
     pausa: 10, pausaSopra: 360,          // 10 min di pausa non pagata nei turni più lunghi di 6 ore
     fabbisogno: [
       { M: 5, I: 1, P: 5 }, { M: 4, I: 1, P: 4 }, { M: 6, I: 1, P: 6 }, { M: 5, I: 1, P: 5 },
@@ -69,7 +69,7 @@ export function preferenze(dipendenti, precedente, numeroSettimana = 0) {
 /// dal pomeriggio alla mattina del giorno dopo. Si parte dalla rotazione e si equilibrano giorni e responsabili.
 export function squadre(dipendenti, r, richieste = [], precedente = null, numeroSettimana = 0) {
   const pref = preferenze(dipendenti, precedente, numeroSettimana);
-  const persone = dipendenti.filter(d => !d.soloFissi);
+  const persone = dipendenti.filter(d => !d.soloFissi && !eCapo(d));
   const cap = d => Math.min(giorniPrevisti(d).max, r.maxGiorni, 7 - giorniAssente(richieste, d.id));
   const fissi = f => dipendenti.reduce((s, d) => s + (d.fissi ?? []).filter(x => fasciaDi(x, r) === f).length, 0);
   const dom = { M: r.fabbisogno.reduce((s, x) => s + (x.M ?? 0), 0) - fissi('M'), P: r.fabbisogno.reduce((s, x) => s + (x.P ?? 0), 0) - fissi('P') };
@@ -111,6 +111,18 @@ export function genera(dipendenti, r, richieste = [], precedente = null, numeroS
       giorniFatti[d.id]++;
     }
 
+  // Il capo: i giorni del contratto, prima quelli con più persone, sempre 08:00–16:00.
+  for (const d of dipendenti.filter(eCapo)) {
+    const c = fasciaCapo(r);
+    const giorni = [0, 1, 2, 3, 4, 5, 6].sort((a, b) => totale(r.fabbisogno[b]) - totale(r.fabbisogno[a]) || a - b);
+    for (const g of giorni) {
+      if (giorniFatti[d.id] >= Math.min(r.maxGiorni, giorniPrevisti(d).max)) break;
+      if (piano[g][d.id] || indisponibile(richieste, d.id, g, c)) continue;
+      piano[g][d.id] = { fascia: 'C', inizio: c.inizio, fine: c.fine, fisso: true };
+      giorniFatti[d.id]++;
+    }
+  }
+
   // Prima i giorni più pieni (mercoledì e domenica), poi gli altri.
   const ordine = [0, 1, 2, 3, 4, 5, 6].sort((a, b) => totale(r.fabbisogno[b]) - totale(r.fabbisogno[a]) || a - b);
 
@@ -149,6 +161,10 @@ export function genera(dipendenti, r, richieste = [], precedente = null, numeroS
 // La fascia più vicina all'orario di un turno fisso.
 const fasciaDi = (t, r) => ['M', 'I', 'P'].reduce((a, k) => Math.abs(r.fasce[k].inizio - t.inizio) < Math.abs(r.fasce[a].inizio - t.inizio) ? k : a, 'M');
 
+// Il capo filiale (sigla CF) fa sempre 08:00–16:00, in più rispetto alle persone per fascia.
+export const eCapo = d => String(d.ruolo ?? '').toUpperCase() === 'CF';
+const fasciaCapo = r => r.fasce.C ?? { inizio: 480, fine: 960 };
+
 const totale = f => (f.M ?? 0) + (f.I ?? 0) + (f.P ?? 0);
 const contaFascia = (giorno, fascia) => Object.values(giorno).filter(t => t.fascia === fascia).length;
 
@@ -157,7 +173,7 @@ function migliore(dipendenti, piano, g, t, r, richieste, precedente, pref, giorn
   const abilitaPresenti = new Set(Object.entries(piano[g]).filter(([, x]) => x.fascia === t.fascia)
     .flatMap(([id]) => dipendenti.find(d => d.id === id)?.abilita ?? []));
   for (const d of dipendenti) {
-    if (piano[g][d.id] || d.soloFissi) continue;
+    if (piano[g][d.id] || d.soloFissi || eCapo(d)) continue;
     if (serveResp && !d.resp) continue;
     if (!fuoriSquadra && t.fascia !== 'I' && pref[d.id] !== t.fascia) continue;
     if (indisponibile(richieste, d.id, g, t)) continue;
@@ -220,9 +236,12 @@ export function coperture(giorno, dipendenti, r) {
   const chiusura = turni.filter(([, t]) => t.fine >= r.fasce.P.fine).length;
   const alCambio = turni.filter(([, t]) => t.inizio <= r.cambio.da && t.fine >= r.cambio.a);
   const respCambio = alCambio.some(([id]) => dipendenti.find(d => d.id === id)?.resp);
+  // In ogni turno (mattina e pomeriggio) un responsabile dall'inizio alla fine; il capo non conta.
+  const respTurno = Object.fromEntries(['M', 'P'].map(f => [f, !turni.some(([, t]) => t.fascia === f) || turni.some(([id, t]) =>
+    t.fascia === f && t.inizio <= r.fasce[f].inizio && t.fine >= r.fasce[f].fine && dipendenti.find(d => d.id === id)?.resp)]));
   return {
-    apertura, chiusura, cambio: alCambio.length, respCambio,
-    ok: apertura >= r.minApertura && chiusura >= r.minChiusura && alCambio.length >= r.cambio.min && respCambio,
+    apertura, chiusura, cambio: alCambio.length, respCambio, respTurno,
+    ok: apertura >= r.minApertura && chiusura >= r.minChiusura && alCambio.length >= r.cambio.min && respCambio && respTurno.M && respTurno.P,
   };
 }
 
@@ -266,6 +285,7 @@ export function verifica(piano, dipendenti, r, richieste = [], precedente = null
     if (cop.apertura < r.minApertura) errori.push(`${GIORNI[g]}: solo ${cop.apertura} all'apertura`);
     if (cop.chiusura < r.minChiusura) errori.push(`${GIORNI[g]}: solo ${cop.chiusura} alla chiusura`);
     if (cop.cambio < r.cambio.min || !cop.respCambio) errori.push(`${GIORNI[g]}: cambio turno scoperto`);
+    for (const f of ['M', 'P']) if (!cop.respTurno[f]) errori.push(`${GIORNI[g]}: ${FASCE[f].toLowerCase()} senza responsabile per tutto il turno`);
     for (const [id, t] of Object.entries(giorno)) {
       if (indisponibile(richieste, id, g, t)) errori.push(`${GIORNI[g]}: ${nome(id)} ha una richiesta`);
       if (!rispettaStacco(piano, id, g, t, r, precedente)) errori.push(`${GIORNI[g]}: ${nome(id)} senza 11 ore di stacco`);
