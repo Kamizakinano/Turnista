@@ -15,6 +15,6 @@ Web app (HTML + JavaScript, senza librerie) per creare i turni settimanali di un
 - Massimo 6 giorni di lavoro, 11 ore di stacco tra un turno e l'altro.
 - Rotazione: ognuno fa tutta la settimana in una squadra (mattina o pomeriggio), la settimana dopo cambia; le squadre si equilibrano per giorni e responsabili.
 - Giorni per contratto: 40 h → 5, 30 h → 4, 20 h → 3–4, turno fisso (es. 8 h solo domenica 06:00–14:10). Mai di più; se i posti non bastano si fanno meno giorni, divisi in proporzione.
-- Monte ore per giorno: se superato, prima si fa entrare più tardi (anche di pomeriggio), solo dopo uscire prima; orari a mezz'ore.
+- Orari dei turni = finestra. Monte ore per giorno: se superato, il sistema accorcia da solo (opzione in Regole): prima si fa entrare più tardi (anche di pomeriggio), solo dopo uscire prima; orari a mezz'ore, turno minimo in Regole, turni fissi intoccabili.
 - Le richieste (ferie, permessi, non disponibile in un orario) escludono la persona e il sistema assegna altri.
 - I dati dei colleghi restano solo nel browser dell'utente: il repository è pubblico, mai salvarci nomi veri.

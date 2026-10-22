@@ -352,16 +352,18 @@ function vistaRegole() {
   let h = `<h1>Regole</h1><div class="carta griglia"><h2>Persone per fascia</h2><table><tr><th></th>${GIORNI.map(n => `<th>${n}</th>`).join('')}</tr>`;
   for (const k of ['M', 'I', 'P']) h += `<tr><td class="nome">${FASCE[k]}</td>${GIORNI.map((_, g) => `<td>${num(`fabbisogno.${g}.${k}`, r.fabbisogno[g][k], 0, 20)}</td>`).join('')}</tr>`;
   h += `<tr><td class="nome">Monte ore</td>${GIORNI.map((_, g) => `<td>${num(`monteOre.${g}`, r.monteOre[g], 0, 400)}</td>`).join('')}</tr></table></div>
-    <div class="carta"><h2>Orari dei turni</h2>${['M', 'I', 'P'].map(k => `<div class="campo"><span>${FASCE[k]}</span><span>
+    <div class="carta"><h2>Orari dei turni</h2><div class="grigio">La finestra in cui può stare il turno.</div>${['M', 'I', 'P'].map(k => `<div class="campo"><span>${FASCE[k]}</span><span>
       <select data-regola="fasce.${k}.inizio">${opzioniOre(r.fasce[k].inizio, 240, 1380)}</select> – <select data-regola="fasce.${k}.fine">${opzioniOre(r.fasce[k].fine, 240, 1410)}</select></span></div>`).join('')}
-      <div class="campo"><span>Pausa non pagata (min)</span>${num('pausa', r.pausa, 0, 90)}</div></div>
+      <div class="campo"><span>Pausa non pagata (min)</span>${num('pausa', r.pausa, 0, 90)}</div>
+      <div class="campo"><span>Turno più corto (ore)</span><input type="number" data-regola="durataMin" data-ore value="${r.durataMin / 60}" min="2" max="8"></div>
+      <div class="campo"><span>Accorcia da solo per stare nel monte ore</span><input type="checkbox" data-regola="accorciaDaSolo" ${r.accorciaDaSolo !== false ? 'checked' : ''}></div></div>
     <div class="carta"><h2>Vincoli</h2>
       <div class="campo"><span>Minimo all'apertura</span>${num('minApertura', r.minApertura, 1, 20)}</div>
       <div class="campo"><span>Minimo alla chiusura</span>${num('minChiusura', r.minChiusura, 1, 20)}</div>
       <div class="campo"><span>Minimo al cambio turno (con 1 resp.)</span>${num('cambio.min', r.cambio.min, 1, 20)}</div>
       <div class="campo"><span>Giorni di lavoro massimi</span>${num('maxGiorni', r.maxGiorni, 1, 7)}</div>
       <div class="campo"><span>Ore di stacco tra turni</span><input type="number" data-regola="stacco" data-ore value="${r.stacco / 60}" min="8" max="16"></div>
-      <div class="campo"><span>Turno più corto (ore)</span><input type="number" data-regola="durataMin" data-ore value="${r.durataMin / 60}" min="2" max="8"></div></div>
+</div>
     <div class="carta"><h2>Copia dei dati</h2><div class="grigio">I dati restano solo in questo telefono o computer. Salva una copia per sicurezza o per passarli a un altro dispositivo.</div>
       <p><button data-az="esporta">📋 Salva copia</button> <button data-az="importa">📋 Carica copia</button> <button class="rosso" data-az="azzera">Ripristina regole</button></p>
       <input type="file" id="file" accept="application/json" style="display:none"></div>`;
@@ -461,7 +463,7 @@ document.getElementById('pagina').addEventListener('change', async e => {
   if (el.dataset.regola) {
     const parti = el.dataset.regola.split('.');
     let o = dati.regole; for (const p of parti.slice(0, -1)) o = o[p];
-    o[parti.at(-1)] = +el.value * (el.dataset.ore != null ? 60 : 1);
+    o[parti.at(-1)] = el.type === 'checkbox' ? el.checked : +el.value * (el.dataset.ore != null ? 60 : 1);
     salva();
   }
 });

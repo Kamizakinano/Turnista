@@ -104,7 +104,7 @@ test('la rotazione cambia fascia la settimana dopo', () => {
 
 test('monte ore superato: i tagli rispettano apertura e chiusura', () => {
   const dip = esempio(), r = regoleBase();
-  r.monteOre[2] = 80;
+  r.monteOre[2] = 80; r.accorciaDaSolo = false;
   const { piano } = genera(dip, r);
   const s = suggerimenti(piano, dip, r, 2);
   assert.ok(s.length > 0);
@@ -150,5 +150,19 @@ test('turno fisso: solo la domenica 06:00–14:10', () => {
   assert.deepEqual(piano[6].dom, { fascia: 'M', inizio: 360, fine: 850, fisso: true });
   assert.ok(Object.values(piano[6]).filter(t => t.fascia === 'M').length >= r.fabbisogno[6].M);
   assert.equal(suggerimenti(piano, dip, r, 6).some(s => s.id === 'dom'), false);
+  assert.deepEqual(verifica(piano, dip, r).errori, []);
+});
+
+test('accorcia da solo: ogni giorno resta nel monte ore, senza scoprire i turni', () => {
+  const dip = negozio(), r = regoleNegozio();
+  const { piano } = genera(dip, r);
+  for (let g = 0; g < 7; g++) {
+    assert.ok(oreGiorno(piano[g], r) <= r.monteOre[g] + 0.01, `giorno ${g}: ${oreGiorno(piano[g], r)}`);
+    assert.ok(coperture(piano[g], dip, r).ok, 'giorno ' + g);
+    for (const t of Object.values(piano[g])) {
+      assert.ok(t.fine - t.inizio >= r.durataMin);
+      assert.ok(t.inizio >= r.fasce[t.fascia].inizio && t.fine <= r.fasce[t.fascia].fine);
+    }
+  }
   assert.deepEqual(verifica(piano, dip, r).errori, []);
 });

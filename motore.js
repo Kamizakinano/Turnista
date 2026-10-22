@@ -16,6 +16,7 @@ export function regoleBase() {
     minApertura: 4, minChiusura: 4,
     cambio: { da: 780, a: 810, min: 2 },  // al cambio turno almeno 2 persone, con un responsabile
     maxGiorni: 6, stacco: 660, durataMin: 240, passo: 30,
+    accorciaDaSolo: true,               // dentro la fascia: si entra più tardi o si esce prima per stare nel monte ore
   };
 }
 
@@ -135,6 +136,13 @@ export function genera(dipendenti, r, richieste = [], precedente = null, numeroS
       const manca = (r.fabbisogno[g][fascia] ?? 0) - contaFascia(piano[g], fascia);
       if (manca > 0) scoperti.push({ giorno: g, fascia, manca });
     }
+  if (r.accorciaDaSolo !== false)
+    for (let g = 0; g < 7; g++)
+      for (let giro = 0; giro < 20; giro++) {
+        const s = suggerimenti(piano, dipendenti, r, g);
+        if (!s.length) break;
+        for (const x of s) piano[g][x.id] = x.dopo;
+      }
   return { piano, scoperti };
 }
 
@@ -233,7 +241,7 @@ export function suggerimenti(piano, dipendenti, r, g) {
     extra(b) - extra(a) || (prova[g][a].fascia === 'I' ? -1 : 0) - (prova[g][b].fascia === 'I' ? -1 : 0));
   for (const id of ordine) {
     if (troppo <= 0.01) break;
-    const s = accorcia(prova, dipendenti, g, id, r, Math.min(troppo * 60, 240));
+    const s = accorcia(prova, dipendenti, g, id, r, Math.min(Math.ceil(troppo * 60 / r.passo - 1e-6) * r.passo, 240));
     if (!s) continue;
     prova[g][id] = s.dopo;
     troppo -= s.ore;
