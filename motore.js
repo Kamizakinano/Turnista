@@ -259,7 +259,7 @@ export function competenzaDi(attivita) {
 const eAV = d => String(d.ruolo ?? '').toUpperCase() === 'AV';
 // La cassa la fanno tutti tranne il garzone (GA), anche se non è segnata tra le competenze.
 // I responsabili sanno fare tutti la frutta.
-const sa = (d, c) => c == null || (c === 'resp' ? !!d.resp : c === 'cassa' ? String(d.ruolo ?? '').toUpperCase() !== 'GA'
+const sa = (d, c) => c == null || (c === 'resp' ? !!d.resp : c === 'cassa' ? !['GA', 'CF'].includes(String(d.ruolo ?? '').toUpperCase())
   : (c === 'frutta' && d.resp) || (d.abilita ?? []).some(x => x.toLowerCase() === c));
 const serveAttivita = (r, g, f) => [...new Set((r.attivita?.[g]?.[f] ?? []).map(competenzaDi).filter(c => c != null))];
 const mancaCompetenza = (piano, dipendenti, r, g, f) => serveAttivita(r, g, f).filter(c =>
@@ -319,20 +319,19 @@ export function agendaTurno(piano, dipendenti, r, g, f) {
   if (ha(a => competenzaDi(a) === 'cassa').length) {
     const [da, a] = f === 'M' ? [aperturaCasse(g), r.cambio.da] : [r.fasce.P.inizio, chiusuraCasse(g)];
     const finestra = d => [Math.max(da, turno(d.id).inizio), Math.min(a, turno(d.id).fine)];
-    // Tutte le casse agli addetti; il responsabile solo se non c'è nessun altro (occasionalmente).
-    const av = () => [...per(presenti.filter(d => !d.resp && sa(d, 'cassa')), d => carico(d.id)),
-      ...per(presenti.filter(d => d.resp && sa(d, 'cassa')), d => carico(d.id))];
-    for (const n of ['Cassa automatica', 'Cassa 1', 'Cassa 2', 'Cassa 3']) prova(n, av(), finestra);
-  }
-  // Casse rimaste scoperte: chi si libera (es. dopo il commi) entra in cassa da quando è libero, se resta almeno un'ora.
-  for (const n of mancano.filter(x => /^Cassa/.test(x))) {
-    const [da, a] = f === 'M' ? [aperturaCasse(g), r.cambio.da] : [r.fasce.P.inizio, chiusuraCasse(g)];
-    const quando = d => { let x = Math.max(da, turno(d.id).inizio); for (const y of agenda[d.id]) if (y.da < a && y.a > x) x = y.a; return x; };
-    const chi = per(presenti.filter(d => !agenda[d.id].some(y => /promo|bake/i.test(y.attivita)) && sa(d, 'cassa')), quando, d => +!!d.resp)
-      .find(d => Math.min(a, turno(d.id).fine) - quando(d) >= 60 && libero(d.id, quando(d), Math.min(a, turno(d.id).fine)));
-    if (!chi) continue;
-    metti(chi.id, n, quando(chi), Math.min(a, turno(chi.id).fine));
-    mancano.splice(mancano.indexOf(n), 1);
+    // Le casse le fanno gli addetti. Il responsabile solo come ultima spiaggia, e solo per cassa automatica e cassa 1.
+    const addetti = () => per(presenti.filter(d => !d.resp && sa(d, 'cassa')), d => carico(d.id));
+    for (const n of ['Cassa automatica', 'Cassa 1', 'Cassa 2', 'Cassa 3']) prova(n, addetti(), finestra);
+    // Chi si libera (es. dopo il commi) entra in cassa da quando è libero, se resta almeno un'ora.
+    const quando = d => { let x = finestra(d)[0]; for (const y of agenda[d.id]) if (y.da < a && y.a > x) x = y.a; return x; };
+    const daQuando = (n, candidati) => {
+      const chi = per(candidati.filter(d => !agenda[d.id].some(y => /promo|bake/i.test(y.attivita))), quando)
+        .find(d => finestra(d)[1] - quando(d) >= 60 && libero(d.id, quando(d), finestra(d)[1]));
+      if (!chi) return false;
+      metti(chi.id, n, quando(chi), finestra(chi)[1]); mancano.splice(mancano.indexOf(n), 1); return true;
+    };
+    for (const n of mancano.filter(x => /^Cassa/.test(x))) daQuando(n, presenti.filter(d => !d.resp && sa(d, 'cassa')));
+    for (const n of mancano.filter(x => x === 'Cassa automatica' || x === 'Cassa 1')) daQuando(n, presenti.filter(d => d.resp && sa(d, 'cassa')));
   }
   // Cassa 2 e 3 si aprono solo se c'è gente: se nessuno è libero restano chiuse (non è un errore).
   const chiuse = mancano.filter(n => n === 'Cassa 2' || n === 'Cassa 3');

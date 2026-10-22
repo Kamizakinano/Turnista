@@ -236,6 +236,8 @@ test('casse agli addetti, il responsabile solo se non c\'è nessun altro; testat
         if (l.some(x => /^cassa/i.test(x.attivita))) {
           assert.notEqual(d.ruolo, 'GA');
           // un responsabile in cassa solo se tutti gli addetti del turno sono già occupati in quella fascia oraria
+          assert.notEqual(d.ruolo, 'CF');
+          if (d.resp) assert.ok(l.every(x => !/^Cassa [23]/.test(x.attivita)), 'responsabile in cassa 2 o 3');
           if (d.resp) assert.ok(Object.entries(agenda).filter(([j]) => !dip.find(x => x.id === j).resp && dip.find(x => x.id === j).ruolo !== 'GA')
             .every(([, m]) => m.some(y => y.da != null)), 'responsabile in cassa con addetti liberi');
         }
