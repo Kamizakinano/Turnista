@@ -4,8 +4,8 @@ Web app (HTML + JavaScript, senza librerie) per creare i turni settimanali di un
 
 - `motore.js`: il motore (genera, verifica, suggerimenti per il monte ore, accorcia, bilancio). Orari in minuti dalla mezzanotte.
 - `index.html`: schermate Settimana, Dipendenti (con richieste), Regole (fabbisogno, monte ore, orari, minimi, copia dei dati).
-- `test/motore.test.mjs`: prove (`npm test`). Ogni logica nuova va provata qui. La CI le esegue a ogni push; il sito (GitHub Pages) si pubblica da `main` solo se passano: https://kamizakinano.github.io/Turnista/
-- Una copia privata gira anche come Artifact: https://claude.ai/artifact/MW1aJms1bMFd2wMZCewuhD (lì non funzionano confirm/alert/download: si usano le finestre `chiedi`/`avvisa` già nel codice).
+- `test/motore.test.mjs`: prove (`npm test`). Ogni logica nuova va provata qui. La CI le esegue a ogni push, solo come controllo.
+- Il sito è GitHub Pages da ramo (`main`, cartella principale), come il progetto Vendite: ogni push su `main` si pubblica in 1–2 minuti. https://kamizakinano.github.io/Turnista/
 
 ## Regole dei turni (decise con l'utente)
 - Turni fissi: mattina 05:00–13:30, intermedio 09:00–17:00, pomeriggio 13:00–21:30; massimo 8 ore pagate (30 min di pausa).

@@ -1,11 +1,9 @@
-name: Prove e sito
+name: Prove
 on:
   push:
     branches: [main, "claude/**"]
 permissions:
   contents: read
-  pages: write
-  id-token: write
 jobs:
   prove:
     runs-on: ubuntu-latest
@@ -14,15 +12,3 @@ jobs:
       - uses: actions/setup-node@v4
         with: { node-version: 22 }
       - run: npm test
-  sito:
-    # Il sito si pubblica solo da main e solo se le prove sono passate.
-    if: github.ref == 'refs/heads/main'
-    needs: prove
-    runs-on: ubuntu-latest
-    environment: { name: github-pages, url: "${{ steps.deploy.outputs.page_url }}" }
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/upload-pages-artifact@v3
-        with: { path: . }
-      - id: deploy
-        uses: actions/deploy-pages@v4
