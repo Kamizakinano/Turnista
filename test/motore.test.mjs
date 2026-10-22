@@ -209,3 +209,20 @@ test('attività: in ogni turno c\'è chi sa fare ogni attività, e ognuna ha una
         else if (c) assert.ok(d.abilita.some(x => x.toLowerCase() === c), `${a.attivita} a ${d.nome}`);
       }
 });
+
+test('cassa: automatica e cassa 1 agli addetti vendita, cassa 2 e 3 ai responsabili', () => {
+  const dip = negozio().map((d, i) => ({ ...d, ruolo: d.resp ? 'CM' : 'AV', abilita: d.abilita.filter(a => a !== 'cassa') }));
+  const r = regoleNegozio();
+  const { piano } = genera(dip, r);
+  assert.deepEqual(verifica(piano, dip, r).errori, []);
+  for (let g = 0; g < 7; g++)
+    for (const f of ['M', 'P']) {
+      const a = assegnaAttivita(piano, dip, r, g, f), di = n => dip.find(d => d.id === a.find(x => x.attivita === n)?.id);
+      assert.equal(di('Cassa automatica').ruolo, 'AV');
+      assert.equal(di('Cassa 1').ruolo, 'AV');
+      assert.notEqual(di('Cassa automatica').id, di('Cassa 1').id);
+      assert.ok(di('Cassa 2').resp);
+      const resp = Object.entries(piano[g]).filter(([id, t]) => t.fascia === f && dip.find(d => d.id === id).resp).length;
+      if (resp >= 2) { assert.ok(di('Cassa 3').resp); assert.notEqual(di('Cassa 2').id, di('Cassa 3').id); }
+    }
+});

@@ -237,9 +237,12 @@ export function competenzaDi(attivita) {
   if (a.includes('occasioni') || a.includes('food')) return 'food';
   if (a.includes('bake') || a.includes('pane')) return 'pane';
   if (a.includes('carne')) return null;
+  if (/^cassa( automatica| \d)?$/.test(a.trim())) return /cassa [23]/.test(a) ? 'resp' : 'cassa';
   return a.trim();
 }
-const sa = (d, c) => c == null || (c === 'resp' ? !!d.resp : (d.abilita ?? []).some(x => x.toLowerCase() === c));
+const eAV = d => String(d.ruolo ?? '').toUpperCase() === 'AV';
+// L'addetto vendita (AV) fa sempre cassa, anche se non è segnata tra le competenze.
+const sa = (d, c) => c == null || (c === 'resp' ? !!d.resp : (c === 'cassa' && eAV(d)) || (d.abilita ?? []).some(x => x.toLowerCase() === c));
 const serveAttivita = (r, g, f) => [...new Set((r.attivita?.[g]?.[f] ?? []).map(competenzaDi).filter(c => c != null))];
 const mancaCompetenza = (piano, dipendenti, r, g, f) => serveAttivita(r, g, f).filter(c =>
   !Object.entries(piano[g]).some(([id, t]) => t.fascia === f && sa(dipendenti.find(d => d.id === id) ?? {}, c)));
@@ -248,15 +251,24 @@ const mancaCompetenza = (piano, dipendenti, r, g, f) => serveAttivita(r, g, f).f
 export function assegnaAttivita(piano, dipendenti, r, g, f) {
   const presenti = Object.entries(piano[g]).filter(([, t]) => t.fascia === f).map(([id]) => dipendenti.find(d => d.id === id)).filter(Boolean);
   const carico = Object.fromEntries(presenti.map(d => [d.id, 0]));
-  const lista = (r.attivita?.[g]?.[f] ?? []).map(nome => ({ nome, c: competenzaDi(nome) }));
-  const capaci = x => presenti.filter(d => sa(d, x.c) && (x.c !== 'resp' || (piano[g][d.id].inizio <= r.fasce[f].inizio && piano[g][d.id].fine >= r.fasce[f].fine)));
-  lista.sort((a, b) => capaci(a).length - capaci(b).length);
-  return lista.map(x => {
+  // La cassa si divide: automatica e cassa 1 agli addetti vendita, cassa 2 e 3 ai responsabili del turno.
+  const respPresenti = presenti.filter(d => d.resp);
+  const lista = (r.attivita?.[g]?.[f] ?? []).flatMap(nome => competenzaDi(nome) !== 'cassa' ? [{ nome, c: competenzaDi(nome) }] :
+    [{ nome: 'Cassa automatica', c: 'cassa', av: true }, { nome: 'Cassa 1', c: 'cassa', av: true },
+     ...respPresenti.slice(0, 2).map((d, i) => ({ nome: 'Cassa ' + (i + 2), c: 'resp', fisso: d.id }))]);
+  const usati = new Set();
+  const capaci = x => x.fisso ? presenti.filter(d => d.id === x.fisso) : x.av
+    ? (p => p.length ? p : presenti.filter(d => sa(d, 'cassa') && !usati.has(d.id)))(presenti.filter(d => !d.resp && sa(d, 'cassa') && !usati.has(d.id)))
+    : presenti.filter(d => sa(d, x.c) && (x.c !== 'resp' || (piano[g][d.id].inizio <= r.fasce[f].inizio && piano[g][d.id].fine >= r.fasce[f].fine)));
+  // Prima le casse dei responsabili, poi le attività che pochi sanno fare.
+  const ordine = [...lista].sort((a, b) => !!b.fisso - !!a.fisso || capaci(a).length - capaci(b).length);
+  const fatte = new Map(ordine.map(x => {
     const chi = capaci(x).sort((a, b) => carico[a.id] - carico[b.id])[0] ?? (x.c === 'resp' ? capaci({ c: 'resp' })[0] : null)
       ?? (x.c === 'resp' ? presenti.find(d => d.resp) : null);
-    if (chi) carico[chi.id]++;
-    return { attivita: x.nome, id: chi?.id ?? null };
-  });
+    if (chi) { carico[chi.id]++; if (x.av) usati.add(chi.id); }
+    return [x, { attivita: x.nome, id: chi?.id ?? null }];
+  }));
+  return lista.map(x => fatte.get(x));
 }
 
 const totale = f => (f.M ?? 0) + (f.I ?? 0) + (f.P ?? 0);
