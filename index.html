@@ -219,7 +219,7 @@ function modificaCella(id, g) {
 function vistaDipendenti() {
   const ric = richiesteSettimana();
   let h = `<h1>Dipendenti <span class="grigio">${dati.dipendenti.length}</span></h1>
-    <p><button class="blu" data-az="nuovo">＋ Nuovo dipendente</button> <button data-az="importaDip">📂 Importa file</button> ${dati.dipendenti.length ? '' : '<button data-az="esempio">Carica 25 di esempio</button>'}</p><div class="carta">`;
+    <p><button class="blu" data-az="nuovo">＋ Nuovo dipendente</button> <button data-az="importaDip">📂 Importa file</button> ${dati.dipendenti.length ? '<button data-az="esportaDip">📤 Esporta elenco</button>' : ''} ${dati.dipendenti.length ? '' : '<button data-az="esempio">Carica 25 di esempio</button>'}</p><div class="carta">`;
   if (!dati.dipendenti.length) h += `<div class="grigio">Nessun dipendente. Aggiungili uno alla volta, oppure carica un esempio con nomi inventati per provare.</div>`;
   for (const d of dati.dipendenti)
     h += `<div class="riga" data-dip="${d.id}" style="cursor:pointer"><span>${esc(d.nome)} ${d.resp ? '<span class="etichetta resp">RESP</span>' : ''}${d.fissi?.length ? `<span class="etichetta">📌 ${GIORNI[d.fissi[0].giorno]} ${ora(d.fissi[0].inizio)}–${ora(d.fissi[0].fine)}</span>` : ''}${d.velocita && d.velocita !== 'normale' ? `<span class="etichetta">${VELOCITA[d.velocita]}</span>` : ''}${(d.abilita ?? []).map(a => `<span class="etichetta">${esc(a)}</span>`).join('')}</span><b>${d.ore} h</b></div>`;
@@ -317,7 +317,8 @@ const RUOLI = { AV: ['cassa'], GA: ['commissionamento'], CM: ['cassa'], CF: ['ca
 function daFile(x, i) {
   const ruolo = String(x.ruolo ?? '').toUpperCase();
   return { id: 'd' + Date.now() + '_' + i, nome: String(x.nome).trim(), ruolo, ore: +x.ore || 40,
-    resp: x.resp ?? (ruolo === 'CM' || ruolo === 'CF'), velocita: x.velocita ?? 'normale', abilita: x.abilita ?? RUOLI[ruolo] ?? ['cassa'] };
+    resp: x.resp ?? (ruolo === 'CM' || ruolo === 'CF'), velocita: x.velocita ?? 'normale', abilita: x.abilita ?? RUOLI[ruolo] ?? ['cassa'],
+    ...(x.fissi?.length ? { fissi: x.fissi, soloFissi: !!x.soloFissi } : {}) };
 }
 
 function guidaCompetenze(i = 0) {
@@ -405,6 +406,16 @@ document.getElementById('pagina').addEventListener('click', async e => {
     dati.dipendenti = Array.from({ length: 25 }, (_, i) => ({ id: 'd' + i, nome: 'Persona ' + (i + 1), resp: i < 5,
       ore: i >= 23 ? 20 : i % 3 === 0 ? 30 : 40, abilita: [abil[i % 4], 'cassa'].filter((x, j, a) => a.indexOf(x) === j) }));
     salva(); return disegna();
+  }
+  if (az === 'esportaDip') {
+    // Stesso formato di "Importa file": si condivide (Messaggi, Mail, File) o, se non si può, si scarica.
+    const lista = dati.dipendenti.map(({ nome, ruolo, ore, resp, velocita, abilita, fissi, soloFissi }) =>
+      ({ nome, ruolo, ore, resp, velocita, abilita, ...(fissi?.length ? { fissi, soloFissi } : {}) }));
+    const testo = JSON.stringify({ turnista: 'dipendenti', dipendenti: lista }, null, 1);
+    const file = new File([testo], 'dipendenti-turnista.json', { type: 'application/json' });
+    try { if (navigator.canShare?.({ files: [file] })) return await navigator.share({ files: [file] }); } catch (e) { if (e.name === 'AbortError') return; }
+    const a = document.createElement('a'); a.href = URL.createObjectURL(file); a.download = file.name; a.click();
+    return setTimeout(() => URL.revokeObjectURL(a.href), 1000);
   }
   if (az === 'importaDip') return document.getElementById('fileDip').click();
   if (el.dataset.togliAss) { dati.assenze.splice(+el.dataset.togliAss, 1); salva(); return disegna(); }
