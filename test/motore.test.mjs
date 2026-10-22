@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { genera, regoleBase, verifica, suggerimenti, oreSettimana, coperture, oreGiorno, accorcia, preferenze, assenzeSettimana, orePagate, oreMancanti, assegnaAttivita, competenzaDi } from '../motore.js';
+import { genera, regoleBase, verifica, suggerimenti, oreSettimana, coperture, oreGiorno, accorcia, preferenze, assenzeSettimana, orePagate, oreMancanti, assegnaAttivita, competenzaDi, agendaTurno } from '../motore.js';
 
 // 25 dipendenti di esempio (nomi inventati): 5 responsabili, contratti da 40, 30 e 20 ore.
 export function esempio() {
@@ -195,19 +195,31 @@ test('ore mancanti: chi è sotto contratto, senza contare i giorni di assenza', 
   for (let i = 1; i < m.length; i++) assert.ok(m[i - 1].manca >= m[i].manca);
 });
 
-test('attività: in ogni turno c\'è chi sa fare ogni attività, e ognuna ha una persona', () => {
+test('agenda: un\'attività alla volta, orari giusti, promo da solo', () => {
   const dip = negozio(), r = regoleNegozio();
   const { piano } = genera(dip, r);
   assert.deepEqual(verifica(piano, dip, r).errori, []);
   for (let g = 0; g < 7; g++)
-    for (const f of ['M', 'P'])
-      for (const a of assegnaAttivita(piano, dip, r, g, f)) {
-        assert.ok(a.id, `${g} ${f} ${a.attivita} senza persona`);
-        assert.equal(piano[g][a.id].fascia, f);
-        const c = competenzaDi(a.attivita), d = dip.find(x => x.id === a.id);
-        if (c === 'resp' || a.attivita === 'Cassa 2' && d.resp) assert.ok(d.resp);
-        else if (c) assert.ok(d.abilita.some(x => x.toLowerCase() === c), `${a.attivita} a ${d.nome}`);
+    for (const f of ['M', 'P']) {
+      const { agenda } = agendaTurno(piano, dip, r, g, f);
+      for (const [id, l] of Object.entries(agenda)) {
+        const t = piano[g][id], d = dip.find(x => x.id === id), conOra = l.filter(x => x.da != null);
+        for (let k = 1; k < conOra.length; k++) assert.ok(conOra[k].da >= conOra[k - 1].a, `${g} ${f} ${d.nome} sovrapposte`);
+        for (const x of conOra) {
+          assert.ok(x.da >= t.inizio && x.a <= t.fine, `${x.attivita} fuori turno`);
+          if (/carne|frutta|testate/i.test(x.attivita)) assert.ok(x.a <= (g === 6 ? 510 : 480));
+          if (/^cassa/i.test(x.attivita) && f === 'M') assert.ok(x.da >= (g === 6 ? 510 : 480) && x.a <= 780);
+          if (/^cassa/i.test(x.attivita) && f === 'P') assert.ok(x.a <= (g === 6 ? 1230 : 1260));
+          const c = competenzaDi(x.attivita);
+          if (c === 'resp') assert.ok(d.resp);
+          else if (c && c !== 'cassa') assert.ok(d.abilita.some(a => a.toLowerCase() === c), `${x.attivita} a ${d.nome}`);
+        }
+        if (l.some(x => /promo/i.test(x.attivita))) {
+          assert.equal(l.length, 1, 'promo fa solo promo');
+          assert.ok(t.fine - t.inizio >= r.fasce[f].fine - r.fasce[f].inizio, 'chi fa promo ha il turno intero');
+        }
       }
+    }
 });
 
 test('cassa: automatica e cassa 1 agli AV; cassa 2 e 3 ai due responsabili, o cassa 2 a un terzo AV se il responsabile è uno', () => {
@@ -217,6 +229,9 @@ test('cassa: automatica e cassa 1 agli AV; cassa 2 e 3 ai due responsabili, o ca
   assert.deepEqual(verifica(piano, dip, r).errori, []);
   for (let g = 0; g < 7; g++)
     for (const f of ['M', 'P']) {
+      // Solo dove le persone bastano per bake, commi e quattro casse.
+      const nTurno = Object.entries(piano[g]).filter(([, t]) => t.fascia === f), nResp = nTurno.filter(([id]) => dip.find(d => d.id === id).resp).length;
+      if (nTurno.length - nResp < 4 + (nResp < 2) || r.attivita[g][f].some(x => /promo/i.test(x))) continue;
       const a = assegnaAttivita(piano, dip, r, g, f), di = n => dip.find(d => d.id === a.find(x => x.attivita === n)?.id);
       assert.equal(di('Cassa automatica').ruolo, 'AV');
       assert.equal(di('Cassa 1').ruolo, 'AV');

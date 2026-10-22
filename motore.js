@@ -188,6 +188,14 @@ export function genera(dipendenti, r, richieste = [], precedente = null, numeroS
         delete piano[g][esce]; giorniFatti[esce]--;
         piano[g][entra.id] = t; giorniFatti[entra.id]++;
       }
+  // Chi fa la promo (circa 8 ore, solo quella) non si accorcia: si sceglie prima dei tagli.
+  for (let g = 0; g < 7; g++)
+    for (const f of ['M', 'P'])
+      if ((r.attivita?.[g]?.[f] ?? []).some(n => /promo/i.test(n))) {
+        const chi = Object.entries(piano[g]).filter(([id, t]) => t.fascia === f && !t.fisso && sa(dipendenti.find(d => d.id === id), 'promo') &&
+          !dipendenti.find(d => d.id === id).resp).sort(([a], [b]) => dipendenti.find(d => d.id === a).abilita.length - dipendenti.find(d => d.id === b).abilita.length)[0];
+        if (chi) chi[1].promo = true;
+      }
   if (r.accorciaDaSolo !== false)
     for (let g = 0; g < 7; g++)
       for (let giro = 0; giro < 20; giro++) {
@@ -247,30 +255,98 @@ const serveAttivita = (r, g, f) => [...new Set((r.attivita?.[g]?.[f] ?? []).map(
 const mancaCompetenza = (piano, dipendenti, r, g, f) => serveAttivita(r, g, f).filter(c =>
   !Object.entries(piano[g]).some(([id, t]) => t.fascia === f && sa(dipendenti.find(d => d.id === id) ?? {}, c)));
 
-/// Chi fa ogni attività del turno: prima le attività che pochi sanno fare, a chi ne ha meno.
-export function assegnaAttivita(piano, dipendenti, r, g, f) {
+// Durate e orari delle attività (minuti). Ognuno fa un'attività alla volta, poi passa alla successiva.
+const DURATA_COMMI = 330;      // all'arrivo, finché non è finito: circa fino alle 10:30 se si entra alle 5
+const DURATA_FOOD = 180;       // food / occasioni / sconto food: circa 3 ore
+const PRIMA_APERTURA = ['carne', 'frutta', 'testate'];  // da finire entro l'apertura
+const aperturaCasse = g => g === 6 ? 510 : 480;         // 08:00, domenica 08:30
+const chiusuraCasse = g => g === 6 ? 1230 : 1260;       // 21:00, domenica 20:30
+
+/// Agenda del turno: per ogni persona le attività in ordine di orario; `mancano` = attività che nessuno può fare.
+export function agendaTurno(piano, dipendenti, r, g, f) {
   const presenti = Object.entries(piano[g]).filter(([, t]) => t.fascia === f).map(([id]) => dipendenti.find(d => d.id === id)).filter(Boolean);
-  const carico = Object.fromEntries(presenti.map(d => [d.id, 0]));
-  // La cassa si divide: automatica e cassa 1 agli addetti vendita, cassa 2 e 3 ai responsabili del turno.
-  const respPresenti = presenti.filter(d => d.resp);
-  const lista = (r.attivita?.[g]?.[f] ?? []).flatMap(nome => competenzaDi(nome) !== 'cassa' ? [{ nome, c: competenzaDi(nome) }] :
-    [{ nome: 'Cassa automatica', c: 'cassa', av: true }, { nome: 'Cassa 1', c: 'cassa', av: true },
-     // Con due responsabili: cassa 2 e 3 a loro; con uno solo: cassa 2 a un terzo addetto vendita, cassa 3 al responsabile.
-     ...(respPresenti.length >= 2 ? respPresenti.slice(0, 2).map((d, i) => ({ nome: 'Cassa ' + (i + 2), c: 'resp', fisso: d.id }))
-       : [{ nome: 'Cassa 2', c: 'cassa', av: true }, ...respPresenti.map(d => ({ nome: 'Cassa 3', c: 'resp', fisso: d.id }))])]);
-  const usati = new Set();
-  const capaci = x => x.fisso ? presenti.filter(d => d.id === x.fisso) : x.av
-    ? (p => p.length ? p : presenti.filter(d => sa(d, 'cassa') && !usati.has(d.id)))(presenti.filter(d => !d.resp && sa(d, 'cassa') && !usati.has(d.id)))
-    : presenti.filter(d => sa(d, x.c) && (x.c !== 'resp' || (piano[g][d.id].inizio <= r.fasce[f].inizio && piano[g][d.id].fine >= r.fasce[f].fine)));
-  // Prima le casse dei responsabili, poi le attività che pochi sanno fare.
-  const ordine = [...lista].sort((a, b) => !!b.fisso - !!a.fisso || capaci(a).length - capaci(b).length);
-  const fatte = new Map(ordine.map(x => {
-    const chi = capaci(x).sort((a, b) => carico[a.id] - carico[b.id])[0] ?? (x.c === 'resp' ? capaci({ c: 'resp' })[0] : null)
-      ?? (x.c === 'resp' ? presenti.find(d => d.resp) : null);
-    if (chi) { carico[chi.id]++; if (x.av) usati.add(chi.id); }
-    return [x, { attivita: x.nome, id: chi?.id ?? null }];
-  }));
-  return lista.map(x => fatte.get(x));
+  const turno = id => piano[g][id];
+  const agenda = Object.fromEntries(presenti.map(d => [d.id, []]));
+  const libero = (id, da, a) => da >= turno(id).inizio && a <= turno(id).fine && a > da && agenda[id].every(x => x.a <= da || x.da >= a);
+  const metti = (id, attivita, da, a) => { agenda[id].push({ attivita, da, a }); agenda[id].sort((x, y) => x.da - y.da); };
+  const mancano = [];
+  const carico = id => agenda[id].length;
+  const intero = d => turno(d.id).inizio <= r.fasce[f].inizio && turno(d.id).fine >= r.fasce[f].fine;
+  const lista = r.attivita?.[g]?.[f] ?? [];
+  const ha = test => lista.filter(n => test(n.toLowerCase()));
+  const prova = (nome, candidati, finestra) => {
+    for (const d of candidati) { const [da, a] = finestra(d); if (libero(d.id, da, a)) { metti(d.id, nome, da, a); return d; } }
+    mancano.push(nome); return null;
+  };
+  // Quante delle altre attività del turno sa fare: chi ne sa fare meno va sulle attività lunghe.
+  const servite = [...new Set(lista.map(competenzaDi).filter(c => c && c !== 'resp' && c !== 'cassa'))];
+  const utile = d => servite.filter(c => sa(d, c)).length;
+  const per = (arr, ...criteri) => [...arr].sort((a, b) => { for (const c of criteri) { const v = c(a) - c(b); if (v) return v; } return 0; });
+
+  // 1. Promo: una persona per tutto il turno, solo quello.
+  for (const n of ha(a => a.includes('promo')))
+    prova(n, per(presenti.filter(d => sa(d, 'promo') && !d.resp), d => +!turno(d.id).promo, utile, d => carico(d.id)), d => [turno(d.id).inizio, turno(d.id).fine]);
+  // 2. Bake: dall'arrivo a fine turno.
+  for (const n of ha(a => competenzaDi(a) === 'pane'))
+    prova(n, per(presenti.filter(d => sa(d, 'pane') && !d.resp), utile, d => +eAV(d), d => carico(d.id)), d => [turno(d.id).inizio, turno(d.id).fine]);
+  // 3. Commi: dall'arrivo finché non è finito (prima chi non serve in cassa).
+  for (const n of ha(a => competenzaDi(a) === 'commissionamento'))
+    prova(n, per(presenti.filter(d => sa(d, 'commissionamento') && !d.resp), utile, d => +eAV(d), d => carico(d.id)),
+      d => [turno(d.id).inizio, Math.min(turno(d.id).fine, turno(d.id).inizio + DURATA_COMMI)]);
+  // 4. Casse: mattina dall'apertura al cambio turno, pomeriggio dal cambio turno alla chiusura.
+  if (ha(a => competenzaDi(a) === 'cassa').length) {
+    const [da, a] = f === 'M' ? [aperturaCasse(g), r.cambio.da] : [r.fasce.P.inizio, chiusuraCasse(g)];
+    const finestra = d => [Math.max(da, turno(d.id).inizio), Math.min(a, turno(d.id).fine)];
+    const resp = per(presenti.filter(d => d.resp && intero(d)), d => carico(d.id));
+    // Prima gli addetti vendita; solo se non ce ne sono liberi, un responsabile in più o chi fa il bake.
+    const av = () => [...per(presenti.filter(d => !d.resp && sa(d, 'cassa')), d => carico(d.id)),
+      ...per(presenti.filter(d => d.resp && !resp.slice(0, 2).includes(d)), d => carico(d.id))];
+    prova('Cassa automatica', av(), finestra);
+    prova('Cassa 1', av(), finestra);
+    if (resp.length >= 2) { prova('Cassa 2', [resp[0]], finestra); prova('Cassa 3', [resp[1]], finestra); }
+    else { prova('Cassa 2', av(), finestra); if (resp.length) prova('Cassa 3', [resp[0]], finestra); }
+  }
+  // Casse rimaste scoperte: chi si libera (es. dopo il commi) entra in cassa da quando è libero, se resta almeno un'ora.
+  for (const n of mancano.filter(x => /^Cassa/.test(x))) {
+    const [da, a] = f === 'M' ? [aperturaCasse(g), r.cambio.da] : [r.fasce.P.inizio, chiusuraCasse(g)];
+    const quando = d => { let x = Math.max(da, turno(d.id).inizio); for (const y of agenda[d.id]) if (y.da < a && y.a > x) x = y.a; return x; };
+    const chi = per(presenti.filter(d => !agenda[d.id].some(y => /promo|bake/i.test(y.attivita)) && sa(d, 'cassa')), quando, d => +!!d.resp)
+      .find(d => Math.min(a, turno(d.id).fine) - quando(d) >= 60 && libero(d.id, quando(d), Math.min(a, turno(d.id).fine)));
+    if (!chi) continue;
+    metti(chi.id, n, quando(chi), Math.min(a, turno(chi.id).fine));
+    mancano.splice(mancano.indexOf(n), 1);
+  }
+  // 5. Prima dell'apertura: carne, frutta, testate (chi entra in cassa alle 8 è libero prima).
+  for (const n of ha(a => PRIMA_APERTURA.some(x => a.includes(x))))
+    prova(n, per(presenti.filter(d => sa(d, competenzaDi(n))), d => +!!d.resp, d => carico(d.id)), d => [turno(d.id).inizio, aperturaCasse(g)]);
+  // 6. Food / occasioni: circa 3 ore, nel primo spazio libero.
+  const primoSpazio = (d, durata) => {
+    const t = turno(d.id); let da = t.inizio;
+    for (const x of agenda[d.id]) { if (x.da - da >= durata) break; da = Math.max(da, x.a); }
+    return [da, Math.min(t.fine, da + durata)];
+  };
+  for (const n of ha(a => competenzaDi(a) === 'food'))
+    prova(n, per(presenti.filter(d => sa(d, 'food')), d => primoSpazio(d, DURATA_FOOD)[0], d => +!!d.resp),
+      d => (([da, a]) => a - da >= DURATA_FOOD ? [da, a] : [0, 0])(primoSpazio(d, DURATA_FOOD)));
+  // 7. Il resto (attività da responsabile, allegato bianco…): nel primo spazio libero, se no durante il turno.
+  const fatte = new Set(Object.values(agenda).flat().map(x => x.attivita));
+  for (const n of lista.filter(n => !fatte.has(n) && !mancano.includes(n) && competenzaDi(n) !== 'cassa')) {
+    const c = competenzaDi(n);
+    const chi = per(presenti.filter(d => sa(d, c) && (c !== 'resp' || intero(d))), d => carico(d.id))[0];
+    if (!chi) { mancano.push(n); continue; }
+    // Il primo buco libero di almeno mezz'ora, fino all'attività successiva.
+    const t = turno(chi.id); let da = t.inizio, a = null;
+    for (const x of [...agenda[chi.id], { da: t.fine, a: t.fine }]) { if (x.da - da >= 30) { a = x.da; break; } da = Math.max(da, x.a); }
+    metti(chi.id, n, a == null ? null : da, a);
+  }
+  for (const id in agenda) agenda[id].sort((x, y) => (x.da ?? 9999) - (y.da ?? 9999));
+  return { agenda, mancano };
+}
+
+/// Chi fa ogni attività del turno (con l'orario, se ce l'ha).
+export function assegnaAttivita(piano, dipendenti, r, g, f) {
+  const { agenda, mancano } = agendaTurno(piano, dipendenti, r, g, f);
+  return [...Object.entries(agenda).flatMap(([id, l]) => l.map(x => ({ ...x, id }))), ...mancano.map(attivita => ({ attivita, id: null }))];
 }
 
 const totale = f => (f.M ?? 0) + (f.I ?? 0) + (f.P ?? 0);
@@ -321,7 +397,7 @@ const giorniAssente = (richieste, id) => new Set(richieste.filter(q => q.dip ===
 /// Prima fa entrare più tardi; solo se non si può fa uscire prima.
 export function accorcia(piano, dipendenti, g, id, r, minuti) {
   const t = piano[g][id];
-  if (!t || t.fisso) return null;
+  if (!t || t.fisso || t.promo) return null;
   const passi = Math.floor(minuti / r.passo) * r.passo;
   if (passi <= 0) return null;
   for (const modo of ['tardi', 'prima']) {
