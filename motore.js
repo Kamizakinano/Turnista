@@ -283,7 +283,8 @@ export function agendaTurno(piano, dipendenti, r, g, f) {
   const carico = id => agenda[id].length;
   const intero = d => turno(d.id).inizio <= r.fasce[f].inizio && turno(d.id).fine >= r.fasce[f].fine;
   const lista = r.attivita?.[g]?.[f] ?? [];
-  const ha = test => lista.filter(n => test(n.toLowerCase()));
+  const prese = new Set();
+  const ha = test => lista.filter(n => !prese.has(n) && test(n.toLowerCase()));
   const prova = (nome, candidati, finestra) => {
     for (const d of candidati) { const [da, a] = finestra(d); if (libero(d.id, da, a)) { metti(d.id, nome, da, a); return d; } }
     mancano.push(nome); return null;
@@ -293,6 +294,18 @@ export function agendaTurno(piano, dipendenti, r, g, f) {
   const utile = d => servite.filter(c => sa(d, c)).length;
   const per = (arr, ...criteri) => [...arr].sort((a, b) => { for (const c of criteri) { const v = c(a) - c(b); if (v) return v; } return 0; });
 
+  // 0. Mansioni scelte a mano nella vista del giorno: vengono prima di tutto, con il loro orario.
+  for (const d of presenti) {
+    const n = turno(d.id).mansione;
+    if (!n || !lista.includes(n)) continue;
+    const t = turno(d.id), a = n.toLowerCase(), c = competenzaDi(n);
+    const fin = /promo/.test(a) || c === 'pane' ? [t.inizio, t.fine]
+      : c === 'commissionamento' ? [t.inizio, Math.min(t.fine, t.inizio + DURATA_COMMI)]
+      : PRIMA_APERTURA.some(x => a.includes(x)) ? [t.inizio, Math.min(t.fine, aperturaCasse(g))]
+      : c === 'food' || a.includes('occasioni') ? [t.inizio, Math.min(t.fine, t.inizio + DURATA_FOOD)] : [null, null];
+    metti(d.id, n, ...fin);
+    prese.add(n);
+  }
   // 1. Promo: una persona per tutto il turno, solo quello.
   for (const n of ha(a => a.includes('promo')))
     prova(n, per(presenti.filter(d => sa(d, 'promo') && !d.resp), d => +!turno(d.id).promo, utile, d => carico(d.id)), d => [turno(d.id).inizio, turno(d.id).fine]);

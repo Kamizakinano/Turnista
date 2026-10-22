@@ -114,7 +114,10 @@ const kw = d => { const t = new Date(Date.UTC(d.getFullYear(), d.getMonth(), d.g
 const dataIt = iso => new Date(iso + 'T12:00:00').toLocaleDateString('it-IT', { day: 'numeric', month: 'short', year: 'numeric' });
 const esc = s => String(s).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
 const hm = h => { const m = Math.round(h * 60); return m < 60 ? `${m} min` : `${Math.floor(m / 60)} h${m % 60 ? ' ' + (m % 60) + ' min' : ''}`; };
-const opzioniOre = (sel, da = 300, a = 1290) => { let s = ''; for (let m = da; m <= a; m += 30) s += `<option value="${m}" ${m === sel ? 'selected' : ''}>${ora(m)}</option>`; return s; };
+const opzioniOre = (sel, da = 300, a = 1290) => { let s = '';
+  // anche un orario fuori dalle mezz'ore (es. 14:10) resta selezionabile
+  const ore = [...new Set([...Array.from({ length: Math.floor((a - da) / 30) + 1 }, (_, i) => da + i * 30), ...(sel != null ? [sel] : [])])].sort((x, y) => x - y);
+  for (const m of ore) s += `<option value="${m}" ${m === sel ? 'selected' : ''}>${ora(m)}</option>`; return s; };
 
 const pianoSettimana = () => dati.settimane[chiave(lunedi)];
 const richiesteSettimana = () => dati.richieste[chiave(lunedi)] ??= [];
@@ -195,7 +198,7 @@ function vistaGiorno(g) {
   const da = r.fasce.M.inizio, a = r.fasce.P.fine, L = a - da;
   return `<h2>${GIORNI[g]} ${data(lunedi, g)}</h2>
     <div class="grigio" style="display:flex;justify-content:space-between;padding-left:84px"><span>${ora(da)}</span><span>13:00</span><span>${ora(a)}</span></div>
-    ${turni.map(([id, t]) => `<div style="display:flex;align-items:center;gap:6px;margin:3px 0"><span style="width:78px;font-size:12px;font-weight:600;overflow:hidden;white-space:nowrap">${esc(nomeDi(id))}</span>
+    ${turni.map(([id, t]) => `<div data-mod="${id}|${g}" style="display:flex;align-items:center;gap:6px;margin:3px 0;cursor:pointer"><span style="width:78px;font-size:12px;font-weight:600;overflow:hidden;white-space:nowrap">${esc(nomeDi(id))}</span>
       <div class="linea"><i class="${t.fascia}" style="left:${(t.inizio - da) / L * 100}%;width:${(t.fine - t.inizio) / L * 100}%"></i></div></div>`).join('')}
     <div class="riga"><span>All'apertura (${ora(da)})</span><b class="${c.apertura >= r.minApertura ? 'ok' : 'no'}">${c.apertura} (min ${r.minApertura})</b></div>
     <div class="riga"><span>Cambio turno ${ora(r.cambio.da)}–${ora(r.cambio.a)}</span><b class="${c.cambio >= r.cambio.min && c.respCambio ? 'ok' : 'no'}">${c.cambio}${c.respCambio ? ', con resp.' : ', senza resp.'}</b></div>
@@ -205,11 +208,37 @@ function vistaGiorno(g) {
       return chi.length ? `<h2 style="margin-top:12px">Attività ${FASCE[f].toLowerCase()}</h2>
       ${mancano.map(n => `<div class="riga"><span class="no">⚠️ ${esc(n)}: nessuno libero</span></div>`).join('')}
       ${chiuse.length ? `<div class="riga grigio"><span>${chiuse.join(' e ')}: non aperta (nessuno libero)</span></div>` : ''}
-      ${chi.sort((a, b) => piano[g][a[0]].inizio - piano[g][b[0]].inizio || nomeDi(a[0]).localeCompare(nomeDi(b[0]))).map(([id, l]) => `<div class="riga" style="display:block">
+      ${chi.sort((a, b) => piano[g][a[0]].inizio - piano[g][b[0]].inizio || nomeDi(a[0]).localeCompare(nomeDi(b[0]))).map(([id, l]) => `<div class="riga" data-mod="${id}|${g}" style="display:block;cursor:pointer">
         <b>${esc(nomeDi(id))}</b> <span class="grigio">${ora(piano[g][id].inizio)}–${ora(piano[g][id].fine)}</span><br>
         <span style="font-size:13px">${(m => m.length ? m.map(x => `${x.da != null ? ora(x.da) + ' ' : ''}${esc(x.attivita)}`).join(' → ') : '')(l.filter(x => !x.cassa))}</span>
         ${l.filter(x => x.cassa).map(x => `${l.some(y => !y.cassa) ? '<br>' : ''}<span style="font-size:13px;color:var(--blu)">🛒 ${esc(x.attivita)} ${ora(x.da)}–${ora(x.a)}, quando arrivano clienti</span>`).join('')}</div>`).join('')}` : ''; }).join('')}
+    <div class="grigio" style="margin-top:8px">Tocca una persona per cambiare orario, mansione o toglierla da questo giorno.</div>
     <p style="text-align:right"><button data-chiudi>Chiudi</button></p>`;
+}
+
+// Modifica di una persona dalla vista del giorno: orario, mansione, toglierla.
+function modificaNelGiorno(id, g) {
+  const piano = pianoSettimana(), r = dati.regole, t = piano[g][id];
+  const f = document.getElementById('finestra');
+  const mansioni = (r.attivita?.[g]?.[t.fascia] ?? []).filter(n => !/^cassa/i.test(n));
+  f.innerHTML = `<h2>${esc(nomeDi(id))} · ${GIORNI[g]} ${data(lunedi, g)}</h2>
+    <div class="campo"><span>Entra</span><select id="mI">${opzioniOre(t.inizio, 240, 1380)}</select></div>
+    <div class="campo"><span>Esce</span><select id="mE">${opzioniOre(t.fine, 270, 1410)}</select></div>
+    <div class="campo"><span>Mansione</span><select id="mM"><option value="">Automatica</option>${mansioni.map(n => `<option ${t.mansione === n ? 'selected' : ''}>${esc(n)}</option>`).join('')}</select></div>
+    <p style="display:flex;gap:8px;justify-content:space-between"><button class="rosso" id="mTogli">Togli da questo giorno</button>
+      <span><button id="mNo">Annulla</button> <button class="blu" id="mOk">Salva</button></span></p>`;
+  const torna = () => { f.innerHTML = vistaGiorno(g); disegna(); };
+  f.querySelector('#mNo').onclick = () => { f.innerHTML = vistaGiorno(g); };
+  f.querySelector('#mOk').onclick = () => {
+    const inizio = +f.querySelector('#mI').value, fine = +f.querySelector('#mE').value;
+    if (fine <= inizio) return f.querySelector('#mE').focus();
+    piano[g][id] = { ...t, inizio, fine, mansione: f.querySelector('#mM').value || undefined };
+    salva(); torna();
+  };
+  f.querySelector('#mTogli').onclick = async () => {
+    if (!await chiedi(`Togliere ${nomeDi(id)} da ${GIORNI[g]}?`, { si: 'Togli' })) return;
+    delete piano[g][id]; salva(); torna();
+  };
 }
 
 function modificaCella(id, g) {
@@ -395,7 +424,11 @@ function disegna() {
 }
 
 document.querySelector('.tab').onclick = e => { const b = e.target.closest('button'); if (b) { tab = b.dataset.tab; disegna(); scrollTo(0, 0); } };
-document.getElementById('finestra').addEventListener('click', e => { if (e.target.closest('[data-chiudi]')) e.currentTarget.close(); });
+document.getElementById('finestra').addEventListener('click', e => {
+  if (e.target.closest('[data-chiudi]')) return e.currentTarget.close();
+  const m = e.target.closest('[data-mod]');
+  if (m) { const [id, g] = m.dataset.mod.split('|'); modificaNelGiorno(id, +g); }
+});
 
 document.getElementById('pagina').addEventListener('click', async e => {
   const el = e.target.closest('[data-az],[data-cella],[data-giorno],[data-dip],[data-togli-ric],[data-togli-ass]');

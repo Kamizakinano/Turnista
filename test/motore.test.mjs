@@ -249,3 +249,14 @@ test('casse agli addetti, il responsabile solo se non c\'è nessun altro; testat
       for (const n of chiuse) assert.ok(n === 'Cassa 2' || n === 'Cassa 3');
     }
 });
+
+test('mansione scelta a mano: la persona fa quella e nessun altro la fa', () => {
+  const dip = negozio(), r = regoleNegozio();
+  const { piano } = genera(dip, r);
+  const [id] = Object.entries(piano[0]).find(([j, t]) => t.fascia === 'M' && !dip.find(d => d.id === j).resp);
+  piano[0][id].mansione = 'Carne';
+  const { agenda } = agendaTurno(piano, dip, r, 0, 'M');
+  assert.equal(agenda[id][0].attivita, 'Carne');
+  assert.equal(agenda[id][0].da, piano[0][id].inizio);
+  assert.equal(Object.entries(agenda).filter(([, l]) => l.some(x => x.attivita === 'Carne')).length, 1);
+});
