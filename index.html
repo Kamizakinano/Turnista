@@ -391,6 +391,7 @@ function guidaCompetenze(i = 0) {
 
 // ---------- Versioni: a ogni aggiornamento del sito se ne aggiunge una in cima (0.01, 0.02, …) ----------
 const VERSIONI = [
+  { v: '0.02', data: '23 ott 2026', note: 'Dalla vista del giorno: tocca una persona per cambiare orario, mansione o toglierla. In Regole: esporta tutti i dati in un file (anche malattie e maternità) e ricaricali.' },
   { v: '0.01', data: '22 ott 2026', note: 'Agenda delle attività per persona; la cassa non blocca (quando arrivano clienti); responsabili in cassa solo come ultima spiaggia.' },
 ];
 
@@ -417,6 +418,7 @@ function vistaRegole() {
       <div class="campo"><span>Ore di stacco tra turni</span><input type="number" data-regola="stacco" data-ore value="${r.stacco / 60}" min="8" max="16"></div>
 </div>
     <div class="carta"><h2>Copia dei dati</h2><div class="grigio">I dati restano solo in questo telefono o computer. Salva una copia per sicurezza o per passarli a un altro dispositivo.</div>
+      <p><button class="blu" data-az="esportaTutto">📤 Esporta tutti i dati</button> <button data-az="caricaFile">📂 Carica file</button></p>
       <p><button data-az="esporta">📋 Salva copia</button> <button data-az="importa">📋 Carica copia</button> <button class="rosso" data-az="azzera">Ripristina regole</button></p>
       <input type="file" id="file" accept="application/json" style="display:none"></div>
     <div class="carta"><h2>Versione ${VERSIONI[0].v}</h2><div class="grigio">Se qui non vedi l'ultima versione, ricarica la pagina.</div>
@@ -466,6 +468,15 @@ document.getElementById('pagina').addEventListener('click', async e => {
     dati.dipendenti = Array.from({ length: 25 }, (_, i) => ({ id: 'd' + i, nome: 'Persona ' + (i + 1), resp: i < 5,
       ore: i >= 23 ? 20 : i % 3 === 0 ? 30 : 40, abilita: [abil[i % 4], 'cassa'].filter((x, j, a) => a.indexOf(x) === j) }));
     salva(); return disegna();
+  }
+  if (az === 'caricaFile') return document.getElementById('file').click();
+  if (az === 'esportaTutto') {
+    // Tutto quello che c'è nel sito: dipendenti, regole, settimane, richieste, malattie e maternità.
+    const oggi = new Date().toISOString().slice(0, 10);
+    const file = new File([JSON.stringify(dati, null, 1)], `turnista-dati-${oggi}.json`, { type: 'application/json' });
+    try { if (navigator.canShare?.({ files: [file] })) return await navigator.share({ files: [file] }); } catch (e) { if (e.name === 'AbortError') return; }
+    const a = document.createElement('a'); a.href = URL.createObjectURL(file); a.download = file.name; a.click();
+    return setTimeout(() => URL.revokeObjectURL(a.href), 1000);
   }
   if (az === 'esportaDip') {
     // Stesso formato di "Importa file": si condivide (Messaggi, Mail, File) o, se non si può, si scarica.
