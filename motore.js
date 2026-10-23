@@ -397,6 +397,15 @@ function migliore(dipendenti, piano, g, t, r, richieste, precedente, pref, giorn
     const previsti = giorniPrevisti(d);
     if (giorniFatti[d.id] >= Math.min(r.maxGiorni, previsti.max)) continue;
     if (!rispettaStacco(piano, d.id, g, t, r, precedente)) continue;
+    // Un secondo responsabile nello stesso turno solo se ai responsabili della squadra restano
+    // abbastanza giorni per i turni che non hanno ancora un responsabile.
+    if (!serveResp && d.resp && t.fascia !== 'I') {
+      const squadra = dipendenti.filter(x => x.resp && !eCapo(x) && pref[x.id] === t.fascia);
+      const restano = squadra.reduce((s, x) => s + Math.max(0, Math.min(r.maxGiorni, giorniPrevisti(x).max, 7 - giorniAssente(richieste, x.id)) - giorniFatti[x.id]), 0);
+      const servono = [0, 1, 2, 3, 4, 5, 6].filter(h => h !== g && (r.fabbisogno[h][t.fascia] ?? 0) > 0 &&
+        !Object.entries(piano[h]).some(([id, x]) => x.fascia === t.fascia && dipendenti.find(z => z.id === id)?.resp)).length;
+      if (restano - 1 < servono) continue;
+    }
     // Prima chi è più indietro rispetto ai giorni del suo contratto: i giorni si dividono in proporzione.
     let p = -giorniFatti[d.id] / Math.max(1, previsti.min) * 40;
     if (pref[d.id] !== t.fascia && t.fascia !== 'I') p -= 50;

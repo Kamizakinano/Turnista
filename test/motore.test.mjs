@@ -260,3 +260,15 @@ test('mansione scelta a mano: la persona fa quella e nessun altro la fa', () => 
   assert.equal(agenda[id][0].da, piano[0][id].inizio);
   assert.equal(Object.entries(agenda).filter(([, l]) => l.some(x => x.attivita === 'Carne')).length, 1);
 });
+
+test('pochi responsabili: i loro giorni bastano per avere un responsabile in ogni turno', () => {
+  const dip = negozio().map((d, i) => i >= 2 && i < 6 ? { ...d, resp: false } : d);  // solo 2 responsabili
+  dip.push({ id: 'r3', nome: 'Resp 3', ore: 30, resp: true, abilita: ['cassa'] }, { id: 'r4', nome: 'Resp 4', ore: 40, resp: true, abilita: ['cassa'] });
+  dip.push({ id: 'r5', nome: 'Resp malato', ore: 30, resp: true, abilita: ['cassa'] });
+  const ric = [0, 1, 2, 3, 4, 5, 6].map(g => ({ dip: 'r5', giorno: g, tipo: 'malattia' }));
+  const r = regoleNegozio();
+  const { piano } = genera(dip, r, ric);
+  for (let g = 0; g < 7; g++)
+    for (const f of ['M', 'P'])
+      assert.ok(Object.entries(piano[g]).some(([id, t]) => t.fascia === f && dip.find(d => d.id === id).resp), `giorno ${g} ${f}`);
+});
