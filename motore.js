@@ -268,7 +268,8 @@ const mancaCompetenza = (piano, dipendenti, r, g, f) => serveAttivita(r, g, f).f
 // Durate e orari delle attività (minuti). Ognuno fa un'attività alla volta, poi passa alla successiva.
 const DURATA_COMMI = 330;      // all'arrivo, finché non è finito: circa fino alle 10:30 se si entra alle 5
 const DURATA_FOOD = 180;       // food / occasioni / sconto food: circa 3 ore
-const PRIMA_APERTURA = ['carne', 'frutta', 'testate'];  // da finire entro l'apertura
+const PRIMA_APERTURA = ['carne', 'frutta', 'testate'];  // carne e frutta all'arrivo, entro l'apertura
+const DURATA_TESTATE = 180;    // testate: dopo le attività dell'arrivo, circa 3 ore
 const aperturaCasse = g => g === 6 ? 510 : 480;         // 08:00, domenica 08:30
 const chiusuraCasse = g => g === 6 ? 1230 : 1260;       // 21:00, domenica 20:30
 
@@ -316,25 +317,24 @@ export function agendaTurno(piano, dipendenti, r, g, f) {
   for (const n of ha(a => competenzaDi(a) === 'commissionamento'))
     prova(n, per(presenti.filter(d => sa(d, 'commissionamento') && !d.resp), utile, d => +eAV(d), d => carico(d.id)),
       d => [turno(d.id).inizio, Math.min(turno(d.id).fine, turno(d.id).inizio + DURATA_COMMI)]);
-  // 3b. Testate (responsabile, prima dell'apertura) e occasioni (responsabile, circa 3 ore): prima delle casse.
   const primoSpazio = (d, durata) => {
     const t = turno(d.id); let da = t.inizio;
     for (const x of agenda[d.id]) { if (x.da - da >= durata) break; da = Math.max(da, x.a); }
     return [da, Math.min(t.fine, da + durata)];
   };
-  const respInteri = () => presenti.filter(d => d.resp && intero(d));
-  for (const n of ha(a => a.includes('testate')))
-    prova(n, per(respInteri().filter(d => sa(d, 'testate')), d => carico(d.id)), d => [turno(d.id).inizio, aperturaCasse(g)]);
-  for (const n of ha(a => a.includes('occasioni')))
-    prova(n, per(respInteri(), d => primoSpazio(d, DURATA_FOOD)[0], d => carico(d.id)),
-      d => (([da, a]) => a - da >= DURATA_FOOD ? [da, a] : [0, 0])(primoSpazio(d, DURATA_FOOD)));
-  // 5. Prima dell'apertura: carne, frutta.
+  const spazioDi = durata => d => (([da, a]) => a - da >= durata ? [da, a] : [0, 0])(primoSpazio(d, durata));
+  // 4. All'arrivo, insieme a bake e commi: carne e frutta (entro l'apertura). Prima gli addetti, poi un responsabile.
   for (const n of ha(a => PRIMA_APERTURA.some(x => a.includes(x)) && !a.includes('testate')))
     prova(n, per(presenti.filter(d => sa(d, competenzaDi(n))), d => +!!d.resp, d => carico(d.id)), d => [turno(d.id).inizio, aperturaCasse(g)]);
+  // 5. Tutto il resto dopo: testate (un responsabile che le sa fare) e occasioni (un responsabile, circa 3 ore).
+  const respInteri = () => presenti.filter(d => d.resp && intero(d));
+  for (const n of ha(a => a.includes('testate')))
+    prova(n, per(respInteri().filter(d => sa(d, 'testate')), d => primoSpazio(d, DURATA_TESTATE)[0], d => carico(d.id)), spazioDi(DURATA_TESTATE));
+  for (const n of ha(a => a.includes('occasioni')))
+    prova(n, per(respInteri(), d => primoSpazio(d, DURATA_FOOD)[0], d => carico(d.id)), spazioDi(DURATA_FOOD));
   // 6. Food / occasioni: circa 3 ore, nel primo spazio libero.
   for (const n of ha(a => competenzaDi(a) === 'food'))
-    prova(n, per(presenti.filter(d => sa(d, 'food')), d => primoSpazio(d, DURATA_FOOD)[0], d => +!!d.resp),
-      d => (([da, a]) => a - da >= DURATA_FOOD ? [da, a] : [0, 0])(primoSpazio(d, DURATA_FOOD)));
+    prova(n, per(presenti.filter(d => sa(d, 'food')), d => primoSpazio(d, DURATA_FOOD)[0], d => +!!d.resp), spazioDi(DURATA_FOOD));
   // 7. Il resto (attività da responsabile, allegato bianco…): nel primo spazio libero, se no durante il turno.
   const fatte = new Set(Object.values(agenda).flat().map(x => x.attivita));
   for (const n of lista.filter(n => !fatte.has(n) && !mancano.includes(n) && competenzaDi(n) !== 'cassa')) {

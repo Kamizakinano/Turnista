@@ -207,7 +207,7 @@ test('agenda: un\'attività alla volta, orari giusti, promo da solo', () => {
         for (let k = 1; k < conOra.length; k++) assert.ok(conOra[k].da >= conOra[k - 1].a, `${g} ${f} ${d.nome} sovrapposte`);
         for (const x of l.filter(x => x.da != null)) {
           assert.ok(x.da >= t.inizio && x.a <= t.fine, `${x.attivita} fuori turno`);
-          if (/carne|frutta|testate/i.test(x.attivita)) assert.ok(x.a <= (g === 6 ? 510 : 480));
+          if (/carne|frutta/i.test(x.attivita)) assert.ok(x.da === t.inizio && x.a <= (g === 6 ? 510 : 480), 'carne e frutta all\'arrivo');
           if (/^cassa/i.test(x.attivita) && f === 'M') assert.ok(x.da >= (g === 6 ? 510 : 480) && x.a <= 780);
           if (/^cassa/i.test(x.attivita) && f === 'P') assert.ok(x.a <= (g === 6 ? 1230 : 1260));
           const c = competenzaDi(x.attivita);
