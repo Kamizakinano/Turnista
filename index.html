@@ -69,7 +69,7 @@
 
 <script type="module">
 import { GIORNI, FASCE, regoleBase, genera, verifica, suggerimenti, oreGiorno, oreSettimana, orePagate,
-         coperture, ora, assenzeSettimana, oreMancanti, agendaTurno } from './motore.js';
+         coperture, ora, assenzeSettimana, oreMancanti, agendaTurno, attivitaDi } from './motore.js';
 
 // Domande e avvisi dentro la pagina (le finestre del browser come confirm() qui non funzionano).
 function chiedi(testo, { si = 'Sì', no = 'Annulla', copia = null, incolla = false } = {}) {
@@ -99,6 +99,16 @@ dati.regole.fasce = { ...regoleBase().fasce, ...dati.regole.fasce };
 dati.assenze ??= [];
 // Pausa portata da 30 a 10 minuti per tutti (una volta sola, poi si cambia da Regole).
 if (!dati.pausa10) { dati.regole.pausa = 10; dati.pausa10 = true; }
+// Attività dell'intermedio (una volta sola, anche dopo aver caricato un file vecchio): le surge del martedì
+// passano all'intermedio, che fa anche l'allegato bianco.
+function aggiorna() {
+  if (dati.attivitaI || !dati.regole.attivita) return;
+  const base = regoleBase().attivita;
+  dati.regole.attivita.forEach((x, g) => { x.I ??= base[g].I; });
+  dati.regole.attivita[1].M = dati.regole.attivita[1].M.filter(n => n !== 'Surge occasioni');
+  dati.attivitaI = true;
+}
+aggiorna();
 const salva = () => { try { localStorage.setItem(CHIAVE, JSON.stringify(dati)); } catch {} };
 
 let tab = 'settimana';
@@ -140,6 +150,7 @@ function vistaSettimana() {
 
   const v = verifica(piano, dati.dipendenti, r, tutteRichieste(), dati.settimane[chiave(piu(lunedi, -7))]);
   h += `<div class="carta"><h2>Controlli</h2>
+    ${v.avvisi.map(e => `<div class="riga"><span>${esc(e)}</span><span style="color:#d98a00;font-weight:700">⚠️</span></div>`).join('')}
     ${v.errori.length ? v.errori.map(e => `<div class="riga"><span>${esc(e)}</span><span class="no">✖</span></div>`).join('')
       : `<div class="riga"><span>Responsabili, apertura, cambio turno, chiusura, 11 h di stacco, nessuno oltre i giorni del contratto, richieste</span><span class="ok">✔</span></div>`}
     </div>`;
@@ -204,10 +215,11 @@ function vistaGiorno(g) {
     <div class="riga"><span>Cambio turno ${ora(r.cambio.da)}–${ora(r.cambio.a)}</span><b class="${c.cambio >= r.cambio.min && c.respCambio ? 'ok' : 'no'}">${c.cambio}${c.respCambio ? ', con resp.' : ', senza resp.'}</b></div>
     <div class="riga"><span>Alla chiusura (${ora(a)})</span><b class="${c.chiusura >= r.minChiusura ? 'ok' : 'no'}">${c.chiusura} (min ${r.minChiusura})</b></div>
     <div class="riga"><span>Ore del giorno</span><b>${hm(oreGiorno(piano[g], r))} / ${r.monteOre[g]} h</b></div>
-    ${['M', 'P'].map(f => { const { agenda, mancano, chiuse } = agendaTurno(piano, dati.dipendenti, r, g, f); const chi = Object.entries(agenda);
+    ${['M', 'I', 'P'].map(f => { const { agenda, mancano, chiuse, facoltative } = agendaTurno(piano, dati.dipendenti, r, g, f); const chi = Object.entries(agenda);
       return chi.length ? `<h2 style="margin-top:12px">Attività ${FASCE[f].toLowerCase()}</h2>
       ${mancano.map(n => `<div class="riga"><span class="no">⚠️ ${esc(n)}: nessuno libero</span></div>`).join('')}
       ${chiuse.length ? `<div class="riga grigio"><span>${chiuse.join(' e ')}: non aperta (nessuno libero)</span></div>` : ''}
+      ${facoltative.map(n => `<div class="riga grigio"><span>${esc(n)}: solo se non fatte domenica (nessun responsabile libero)</span></div>`).join('')}
       ${chi.sort((a, b) => piano[g][a[0]].inizio - piano[g][b[0]].inizio || nomeDi(a[0]).localeCompare(nomeDi(b[0]))).map(([id, l]) => `<div class="riga" data-mod="${id}|${g}" style="display:block;cursor:pointer">
         <b>${esc(nomeDi(id))}</b> <span class="grigio">${ora(piano[g][id].inizio)}–${ora(piano[g][id].fine)}</span><br>
         <span style="font-size:13px">${(m => m.length ? m.map(x => `${x.da != null ? ora(x.da) + ' ' : ''}${esc(x.attivita)}`).join(' → ') : '')(l.filter(x => !x.cassa))}</span>
@@ -391,7 +403,7 @@ function guidaCompetenze(i = 0) {
 
 // ---------- Versioni: a ogni aggiornamento del sito se ne aggiunge una in cima (0.01, 0.02, …) ----------
 const VERSIONI = [
-  { v: '0.03', data: '23 ott 2026', note: 'Correzione: con pochi responsabili (o uno in malattia) i loro giorni si distribuiscono in modo che ogni turno abbia il suo responsabile. All\'arrivo prima frutta, bake, carne e commi; testate, occasioni e il resto dopo.' },
+  { v: '0.03', data: '23 ott 2026', note: 'Ogni turno ha il suo responsabile anche con pochi responsabili o uno in malattia. All\'arrivo prima frutta, bake, carne e commi, il resto dopo. L\'intermedio è un responsabile (allegato bianco; martedì le surge). Con testate o occasioni (mercoledì e domenica) 2 responsabili, uno sa fare le testate; testate del lunedì solo di riserva.' },
   { v: '0.02', data: '23 ott 2026', note: 'Dalla vista del giorno: tocca una persona per cambiare orario, mansione o toglierla. In Regole: esporta tutti i dati in un file (anche malattie e maternità) e ricaricali.' },
   { v: '0.01', data: '22 ott 2026', note: 'Agenda delle attività per persona; la cassa non blocca (quando arrivano clienti); responsabili in cassa solo come ultima spiaggia.' },
 ];
@@ -409,8 +421,8 @@ function vistaRegole() {
       <div class="campo"><span>Turno più corto (ore)</span><input type="number" data-regola="durataMin" data-ore value="${r.durataMin / 60}" min="2" max="8"></div>
       <div class="campo"><span>Accorcia da solo per stare nel monte ore</span><input type="checkbox" data-regola="accorciaDaSolo" ${r.accorciaDaSolo !== false ? 'checked' : ''}></div></div>
     <div class="carta"><h2>Attività</h2><div class="grigio">Separate da virgola. “Occasioni” e “food” = Food, “Bake” = pane, “responsabile” = un CM, “Carne” = chiunque.</div>
-      ${GIORNI.map((n, g) => `<div style="margin-top:10px"><b>${n}</b>${['M', 'P'].map(f => `<div class="campo"><span style="width:90px">${FASCE[f]}</span>
-        <textarea data-attivita="${g}.${f}" rows="2" style="flex:1;font:inherit;padding:6px 8px;border:1px solid var(--linea);border-radius:10px;background:var(--carta);color:var(--testo)">${esc((r.attivita?.[g]?.[f] ?? []).join(', '))}</textarea></div>`).join('')}</div>`).join('')}</div>
+      ${GIORNI.map((n, g) => `<div style="margin-top:10px"><b>${n}</b>${['M', 'I', 'P'].map(f => `<div class="campo"><span style="width:90px">${FASCE[f]}</span>
+        <textarea data-attivita="${g}.${f}" rows="2" style="flex:1;font:inherit;padding:6px 8px;border:1px solid var(--linea);border-radius:10px;background:var(--carta);color:var(--testo)">${esc(attivitaDi(r, g, f).join(', '))}</textarea></div>`).join('')}</div>`).join('')}</div>
     <div class="carta"><h2>Vincoli</h2>
       <div class="campo"><span>Minimo all'apertura</span>${num('minApertura', r.minApertura, 1, 20)}</div>
       <div class="campo"><span>Minimo alla chiusura</span>${num('minChiusura', r.minChiusura, 1, 20)}</div>
@@ -504,7 +516,7 @@ document.getElementById('pagina').addEventListener('click', async e => {
     const testo = await chiedi('Incolla qui il testo della copia. Sostituisce i dati di questo dispositivo.', { si: 'Carica', incolla: true });
     if (!testo) return;
     try { const nuovi = JSON.parse(testo); if (!Array.isArray(nuovi.dipendenti)) throw 0;
-      dati = { ...nuovi, regole: { ...regoleBase(), ...nuovi.regole } }; salva(); disegna(); avvisa('Copia caricata.');
+      dati = { ...nuovi, regole: { ...regoleBase(), ...nuovi.regole } }; aggiorna(); salva(); disegna(); avvisa('Copia caricata.');
     } catch { avvisa('Il testo incollato non è una copia di Turnista.'); }
     return;
   }
@@ -526,13 +538,14 @@ document.getElementById('pagina').addEventListener('change', async e => {
   }
   if (el.id === 'file' && el.files[0]) {
     try { const nuovi = JSON.parse(await el.files[0].text()); if (!Array.isArray(nuovi.dipendenti)) throw 0;
-      if (await chiedi('Sostituire i dati di questo dispositivo con la copia?')) { dati = { ...nuovi, regole: { ...regoleBase(), ...nuovi.regole } }; salva(); disegna(); }
+      if (await chiedi('Sostituire i dati di questo dispositivo con la copia?')) { dati = { ...nuovi, regole: { ...regoleBase(), ...nuovi.regole } }; aggiorna(); salva(); disegna(); }
     } catch { avvisa('Il file non è una copia di Turnista.'); }
     return;
   }
   if (el.dataset.attivita) {
     const [g, f] = el.dataset.attivita.split('.');
     dati.regole.attivita = structuredClone(dati.regole.attivita ?? regoleBase().attivita);
+    dati.regole.attivita[g] ??= {};
     dati.regole.attivita[g][f] = el.value.split(',').map(x => x.trim()).filter(Boolean);
     return salva();
   }

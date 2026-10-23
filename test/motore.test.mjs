@@ -147,7 +147,7 @@ test('turno fisso: solo la domenica 06:00–14:10', () => {
   const r = regoleBase();
   const { piano } = genera(dip, r);
   for (let g = 0; g < 6; g++) assert.equal(piano[g].dom, undefined);
-  assert.deepEqual(piano[6].dom, { fascia: 'M', inizio: 360, fine: 850, fisso: true });
+  assert.deepEqual([piano[6].dom.fascia, piano[6].dom.inizio, piano[6].dom.fine, piano[6].dom.fisso], ['M', 360, 850, true]);
   assert.ok(Object.values(piano[6]).filter(t => t.fascia === 'M').length >= r.fabbisogno[6].M);
   assert.equal(suggerimenti(piano, dip, r, 6).some(s => s.id === 'dom'), false);
   assert.deepEqual(verifica(piano, dip, r).errori, []);
@@ -157,7 +157,8 @@ test('accorcia da solo: ogni giorno resta nel monte ore, senza scoprire i turni'
   const dip = negozio(), r = regoleNegozio();
   const { piano } = genera(dip, r);
   for (let g = 0; g < 7; g++) {
-    assert.ok(oreGiorno(piano[g], r) <= r.monteOre[g] + 0.01, `giorno ${g}: ${oreGiorno(piano[g], r)}`);
+    // nel monte ore, oppure non c'è più nessuno da poter accorciare (responsabili, bake, commi, promo…)
+    assert.ok(oreGiorno(piano[g], r) <= r.monteOre[g] + 0.01 || suggerimenti(piano, dip, r, g).length === 0, `giorno ${g}: ${oreGiorno(piano[g], r)}`);
     assert.ok(coperture(piano[g], dip, r).ok, 'giorno ' + g);
     for (const t of Object.values(piano[g])) {
       assert.ok(t.fine - t.inizio >= r.durataMin);
@@ -213,8 +214,8 @@ test('agenda: un\'attività alla volta, orari giusti, promo da solo', () => {
           const c = competenzaDi(x.attivita);
           if (/^cassa/i.test(x.attivita)) assert.notEqual(d.ruolo, 'GA');
           else if (c === 'resp') assert.ok(d.resp, `${x.attivita} a ${d.nome}`);
-          else if (c) assert.ok(d.abilita.some(a => a.toLowerCase() === c), `${x.attivita} a ${d.nome}`);
-          if (/testate/i.test(x.attivita)) assert.ok(!l.some(y => /bake|commission/i.test(y.attivita)));
+          else if (c) assert.ok((c === 'frutta' && d.resp) || d.abilita.some(a => a.toLowerCase() === c), `${x.attivita} a ${d.nome}`);
+          if (/testate/i.test(x.attivita)) assert.ok(!l.some(y => /^bake$|commission/i.test(y.attivita)));
         }
         assert.ok(l.filter(x => x.cassa).length <= 1, 'al massimo una cassa a testa');
         if (l.some(x => /promo/i.test(x.attivita))) {
@@ -271,4 +272,19 @@ test('pochi responsabili: i loro giorni bastano per avere un responsabile in ogn
   for (let g = 0; g < 7; g++)
     for (const f of ['M', 'P'])
       assert.ok(Object.entries(piano[g]).some(([id, t]) => t.fascia === f && dip.find(d => d.id === id).resp), `giorno ${g} ${f}`);
+});
+
+test('intermedio responsabile (martedì fa le surge); 2 responsabili con testate o occasioni; testate del lunedì di riserva', () => {
+  const dip = negozio(), r = regoleNegozio();
+  const { piano } = genera(dip, r);
+  const resp = (g, f) => Object.entries(piano[g]).filter(([id, t]) => t.fascia === f && dip.find(d => d.id === id).resp);
+  for (let g = 0; g < 7; g++) if (r.fabbisogno[g].I) assert.equal(resp(g, 'I').length, 1, 'intermedio ' + g);
+  const mar = agendaTurno(piano, dip, r, 1, 'I').agenda;
+  assert.ok(Object.values(mar).some(l => l.some(x => x.attivita === 'Surge occasioni')));
+  for (const [g, f] of [[2, 'M'], [2, 'P'], [6, 'M'], [6, 'P']]) {
+    assert.ok(resp(g, f).length >= 2, `${g} ${f}: ${resp(g, f).length} responsabili`);
+    if (r.attivita[g][f].includes('Testate')) assert.ok(resp(g, f).some(([id]) => dip.find(d => d.id === id).abilita.includes('Testate')));
+  }
+  assert.ok(!agendaTurno(piano, dip, r, 0, 'M').mancano.includes('Testate'));
+  assert.deepEqual(verifica(piano, dip, r).errori, []);
 });

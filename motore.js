@@ -17,7 +17,7 @@ export function regoleBase() {
     cambio: { da: 780, a: 810, min: 2 },  // al cambio turno almeno 2 persone, con un responsabile
     maxGiorni: 6, stacco: 660, durataMin: 240, passo: 30,
     accorciaDaSolo: true,
-    attivita: [{"M": ["Commissionamento", "Frutta", "Bake", "Carne", "Cassa", "Attività da responsabile", "Testate"], "P": ["Commissionamento", "Cassa", "Attività da responsabile", "Bake"]}, {"M": ["Commissionamento", "Frutta", "Bake", "Carne", "Cassa", "Attività da responsabile", "Surge occasioni"], "P": ["Commissionamento", "Cassa", "Attività da responsabile", "Bake"]}, {"M": ["Commissionamento", "Frutta", "Bake", "Carne", "Cassa", "Attività da responsabile", "Testate", "Allegato bianco responsabile", "Food"], "P": ["Commissionamento", "Cassa", "Attività da responsabile", "Bake", "Promo", "Fresche occasioni"]}, {"M": ["Commissionamento", "Frutta", "Bake", "Carne", "Cassa", "Attività da responsabile"], "P": ["Commissionamento", "Cassa", "Attività da responsabile", "Bake"]}, {"M": ["Commissionamento", "Frutta", "Bake", "Carne", "Cassa", "Attività da responsabile"], "P": ["Commissionamento", "Cassa", "Attività da responsabile", "Bake"]}, {"M": ["Commissionamento", "Frutta", "Bake", "Carne", "Cassa", "Attività da responsabile", "Sconto food"], "P": ["Commissionamento", "Cassa", "Attività da responsabile", "Bake"]}, {"M": ["Commissionamento", "Frutta", "Bake", "Carne", "Cassa", "Attività da responsabile", "Testate", "Surge occasioni"], "P": ["Commissionamento", "Cassa", "Attività da responsabile", "Bake", "Promo", "Fresche occasioni"]}],               // dentro la fascia: si entra più tardi o si esce prima per stare nel monte ore
+    attivita: [{"M": ["Commissionamento", "Frutta", "Bake", "Carne", "Cassa", "Attività da responsabile", "Testate"], "P": ["Commissionamento", "Cassa", "Attività da responsabile", "Bake"], "I": []}, {"M": ["Commissionamento", "Frutta", "Bake", "Carne", "Cassa", "Attività da responsabile"], "P": ["Commissionamento", "Cassa", "Attività da responsabile", "Bake"], "I": ["Surge occasioni", "Allegato bianco responsabile"]}, {"M": ["Commissionamento", "Frutta", "Bake", "Carne", "Cassa", "Attività da responsabile", "Testate", "Allegato bianco responsabile", "Food"], "P": ["Commissionamento", "Cassa", "Attività da responsabile", "Bake", "Promo", "Fresche occasioni"], "I": []}, {"M": ["Commissionamento", "Frutta", "Bake", "Carne", "Cassa", "Attività da responsabile"], "P": ["Commissionamento", "Cassa", "Attività da responsabile", "Bake"], "I": []}, {"M": ["Commissionamento", "Frutta", "Bake", "Carne", "Cassa", "Attività da responsabile"], "P": ["Commissionamento", "Cassa", "Attività da responsabile", "Bake"], "I": ["Allegato bianco responsabile"]}, {"M": ["Commissionamento", "Frutta", "Bake", "Carne", "Cassa", "Attività da responsabile", "Sconto food"], "P": ["Commissionamento", "Cassa", "Attività da responsabile", "Bake"], "I": ["Allegato bianco responsabile"]}, {"M": ["Commissionamento", "Frutta", "Bake", "Carne", "Cassa", "Attività da responsabile", "Testate", "Surge occasioni"], "P": ["Commissionamento", "Cassa", "Attività da responsabile", "Bake", "Promo", "Fresche occasioni"], "I": ["Allegato bianco responsabile"]}],               // dentro la fascia: si entra più tardi o si esce prima per stare nel monte ore
   };
 }
 
@@ -113,6 +113,15 @@ export function squadre(dipendenti, r, richieste = [], precedente = null, numero
           if (va) pref[va.id] = o;
         }
       }
+  // Le testate le fa solo un responsabile che le sa fare: la squadra che le ha deve averne almeno uno
+  // (si scambia con un responsabile dell'altra squadra che non le sa fare).
+  for (const f of ['M', 'P']) {
+    if (![0, 1, 2, 3, 4, 5, 6].some(g => g !== 0 && attivitaDi(r, g, f).some(n => /testate/i.test(n)))) continue;
+    const sanno = x => persone.filter(d => d.resp && sa(d, 'testate') && pref[d.id] === x);
+    if (sanno(f).length) continue;
+    const viene = sanno(altra(f))[0], va = persone.find(d => d.resp && !sa(d, 'testate') && pref[d.id] === f);
+    if (viene) { pref[viene.id] = f; if (va) pref[va.id] = altra(f); }
+  }
   return pref;
 }
 
@@ -146,20 +155,39 @@ export function genera(dipendenti, r, richieste = [], precedente = null, numeroS
   // Prima i giorni più pieni (mercoledì e domenica), poi gli altri.
   const ordine = [0, 1, 2, 3, 4, 5, 6].sort((a, b) => totale(r.fabbisogno[b]) - totale(r.fabbisogno[a]) || a - b);
 
-  for (let passo = 0; passo < 2; passo++) {           // al secondo giro si può uscire dalla propria squadra
-    for (const g of ordine) {
-      for (const fascia of ['M', 'P', 'I']) {
-        const serve = r.fabbisogno[g][fascia] ?? 0;
-        while (contaFascia(piano[g], fascia) < serve) {
+  // Prima i responsabili, in quest'ordine: uno per mattina e pomeriggio di tutti i giorni, poi l'intermedio,
+  // poi il secondo nei turni con testate o occasioni. Dopo tutti gli altri.
+  for (const [fasce, quanti] of [[['M', 'P'], () => 1], [['I'], (g, f) => respNecessari(r, g, f)], [['M', 'P'], (g, f) => respNecessari(r, g, f)]])
+    for (const g of ordine)
+      for (const fascia of fasce) {
+        const resp = () => Object.entries(piano[g]).filter(([id, x]) => x.fascia === fascia && dipendenti.find(d => d.id === id)?.resp).length;
+        while (resp() < Math.min(quanti(g, fascia), r.fabbisogno[g][fascia] ?? 0) && contaFascia(piano[g], fascia) < (r.fabbisogno[g][fascia] ?? 0)) {
           const t = { fascia, inizio: r.fasce[fascia].inizio, fine: r.fasce[fascia].fine };
-          const serveResp = fascia !== 'I' && !Object.entries(piano[g]).some(([id, x]) =>
-            x.fascia === fascia && dipendenti.find(d => d.id === id)?.resp);
-          const scelto = migliore(dipendenti, piano, g, t, r, richieste, precedente, pref, giorniFatti, passo === 1, serveResp)
-            ?? (serveResp ? migliore(dipendenti, piano, g, t, r, richieste, precedente, pref, giorniFatti, passo === 1, false) : null);
+          const scelto = migliore(dipendenti, piano, g, t, r, richieste, precedente, pref, giorniFatti, fascia === 'I', true);
           if (!scelto) break;
           piano[g][scelto.id] = t;
           giorniFatti[scelto.id]++;
         }
+      }
+  // A giro: una persona per turno alla volta, così se le persone non bastano la mancanza si divide tra i giorni.
+  for (let passo = 0; passo < 2; passo++) {           // al secondo giro si può uscire dalla propria squadra
+    for (let aggiunto = true; aggiunto;) {
+      aggiunto = false;
+      for (const g of ordine) {
+      for (const fascia of ['M', 'P', 'I']) {
+        const serve = r.fabbisogno[g][fascia] ?? 0;
+        if (contaFascia(piano[g], fascia) < serve) {
+          const t = { fascia, inizio: r.fasce[fascia].inizio, fine: r.fasce[fascia].fine };
+          const serveResp = Object.entries(piano[g]).filter(([id, x]) =>
+            x.fascia === fascia && dipendenti.find(d => d.id === id)?.resp).length < respNecessari(r, g, fascia);
+          const scelto = migliore(dipendenti, piano, g, t, r, richieste, precedente, pref, giorniFatti, passo === 1, serveResp)
+            ?? (serveResp ? migliore(dipendenti, piano, g, t, r, richieste, precedente, pref, giorniFatti, passo === 1, false) : null);
+          if (!scelto) continue;
+          piano[g][scelto.id] = t;
+          giorniFatti[scelto.id]++;
+          aggiunto = true;
+        }
+      }
       }
     }
   }
@@ -199,7 +227,7 @@ export function genera(dipendenti, r, richieste = [], precedente = null, numeroS
   // Chi fa bake, commi o le attività dall'arrivo non si accorcia: si accorcia chi va in cassa.
   const protetti = [];
   for (let g = 0; g < 7; g++)
-    for (const f of ['M', 'P'])
+    for (const f of ['M', 'I', 'P'])
       for (const [id, l] of Object.entries(agendaTurno(piano, dipendenti, r, g, f).agenda))
         if (l.some(x => !x.cassa && x.da === piano[g][id].inizio && competenzaDi(x.attivita) !== 'resp')) { piano[g][id].protetto = true; protetti.push(piano[g][id]); }
   if (r.accorciaDaSolo !== false)
@@ -209,7 +237,7 @@ export function genera(dipendenti, r, richieste = [], precedente = null, numeroS
         if (!s.length) break;
         for (const x of s) piano[g][x.id] = x.dopo;
       }
-  for (const t of protetti) delete t.protetto;
+  // Il segno resta: anche i suggerimenti di dopo ("Applica") non accorciano chi inizia all'arrivo.
   return { piano, scoperti };
 }
 
@@ -259,9 +287,17 @@ export function competenzaDi(attivita) {
 const eAV = d => String(d.ruolo ?? '').toUpperCase() === 'AV';
 // La cassa la fanno tutti tranne il garzone (GA), anche se non è segnata tra le competenze.
 // I responsabili sanno fare tutti la frutta.
+/// Le attività di un giorno e fascia (se nelle regole salvate manca l'intermedio, si usano quelle di partenza).
+export const attivitaDi = (r, g, f) => r.attivita?.[g]?.[f] ?? regoleBase().attivita[g]?.[f] ?? [];
+/// Quanti responsabili servono: l'intermedio è sempre un responsabile; 2 nei turni con testate o occasioni
+/// (le testate del lunedì sono solo di riserva, se non fatte domenica).
+export function respNecessari(r, g, f) {
+  if (f === 'I') return r.fabbisogno[g]?.I ?? 0;
+  return attivitaDi(r, g, f).some(n => /occasioni/i.test(n) || (/testate/i.test(n) && g !== 0)) ? 2 : 1;
+}
 const sa = (d, c) => c == null || (c === 'resp' ? !!d.resp : c === 'cassa' ? !['GA', 'CF'].includes(String(d.ruolo ?? '').toUpperCase())
   : (c === 'frutta' && d.resp) || (d.abilita ?? []).some(x => x.toLowerCase() === c));
-const serveAttivita = (r, g, f) => [...new Set((r.attivita?.[g]?.[f] ?? []).map(competenzaDi).filter(c => c != null))];
+const serveAttivita = (r, g, f) => [...new Set(attivitaDi(r, g, f).map(competenzaDi).filter(c => c != null))];
 const mancaCompetenza = (piano, dipendenti, r, g, f) => serveAttivita(r, g, f).filter(c =>
   !Object.entries(piano[g]).some(([id, t]) => t.fascia === f && sa(dipendenti.find(d => d.id === id) ?? {}, c)));
 
@@ -283,7 +319,7 @@ export function agendaTurno(piano, dipendenti, r, g, f) {
   const mancano = [];
   const carico = id => agenda[id].length;
   const intero = d => turno(d.id).inizio <= r.fasce[f].inizio && turno(d.id).fine >= r.fasce[f].fine;
-  const lista = r.attivita?.[g]?.[f] ?? [];
+  const lista = attivitaDi(r, g, f);
   const prese = new Set();
   const ha = test => lista.filter(n => !prese.has(n) && test(n.toLowerCase()));
   const prova = (nome, candidati, finestra) => {
@@ -328,8 +364,12 @@ export function agendaTurno(piano, dipendenti, r, g, f) {
     prova(n, per(presenti.filter(d => sa(d, competenzaDi(n))), d => +!!d.resp, d => carico(d.id)), d => [turno(d.id).inizio, aperturaCasse(g)]);
   // 5. Tutto il resto dopo: testate (un responsabile che le sa fare) e occasioni (un responsabile, circa 3 ore).
   const respInteri = () => presenti.filter(d => d.resp && intero(d));
-  for (const n of ha(a => a.includes('testate')))
-    prova(n, per(respInteri().filter(d => sa(d, 'testate')), d => primoSpazio(d, DURATA_TESTATE)[0], d => carico(d.id)), spazioDi(DURATA_TESTATE));
+  const facoltative = [];
+  for (const n of ha(a => a.includes('testate'))) {
+    const chi = prova(n, per(respInteri().filter(d => sa(d, 'testate')), d => primoSpazio(d, DURATA_TESTATE)[0], d => carico(d.id)), spazioDi(DURATA_TESTATE));
+    // Il lunedì le testate sono di riserva: se nessuno è libero non è un errore.
+    if (!chi && g === 0) { mancano.splice(mancano.indexOf(n), 1); facoltative.push(n); }
+  }
   for (const n of ha(a => a.includes('occasioni')))
     prova(n, per(respInteri(), d => primoSpazio(d, DURATA_FOOD)[0], d => carico(d.id)), spazioDi(DURATA_FOOD));
   // 6. Food / occasioni: circa 3 ore, nel primo spazio libero.
@@ -337,7 +377,7 @@ export function agendaTurno(piano, dipendenti, r, g, f) {
     prova(n, per(presenti.filter(d => sa(d, 'food')), d => primoSpazio(d, DURATA_FOOD)[0], d => +!!d.resp), spazioDi(DURATA_FOOD));
   // 7. Il resto (attività da responsabile, allegato bianco…): nel primo spazio libero, se no durante il turno.
   const fatte = new Set(Object.values(agenda).flat().map(x => x.attivita));
-  for (const n of lista.filter(n => !fatte.has(n) && !mancano.includes(n) && competenzaDi(n) !== 'cassa')) {
+  for (const n of lista.filter(n => !fatte.has(n) && !mancano.includes(n) && !facoltative.includes(n) && competenzaDi(n) !== 'cassa')) {
     const c = competenzaDi(n);
     const chi = per(presenti.filter(d => sa(d, c) && (c !== 'resp' || intero(d))), d => carico(d.id))[0];
     if (!chi) { mancano.push(n); continue; }
@@ -373,7 +413,7 @@ export function agendaTurno(piano, dipendenti, r, g, f) {
     if (ref) metti(ref.id, 'Referente bake', null, null);
   }
   for (const id in agenda) agenda[id].sort((x, y) => (x.da ?? 9999) - (y.da ?? 9999));
-  return { agenda, mancano, chiuse };
+  return { agenda, mancano, chiuse, facoltative };
 }
 
 /// Chi fa ogni attività del turno (con l'orario, se ce l'ha).
@@ -410,6 +450,9 @@ function migliore(dipendenti, piano, g, t, r, richieste, precedente, pref, giorn
     let p = -giorniFatti[d.id] / Math.max(1, previsti.min) * 40;
     if (pref[d.id] !== t.fascia && t.fascia !== 'I') p -= 50;
     if (!serveResp && d.resp) p -= 3;                         // i responsabili servono dove manca un responsabile
+    // Nei turni con le testate, almeno un responsabile che le sa fare.
+    if (serveResp && d.resp && attivitaDi(r, g, t.fascia).some(n => /testate/i.test(n)) && sa(d, 'testate') &&
+        !Object.entries(piano[g]).some(([id, x]) => x.fascia === t.fascia && sa(dipendenti.find(z => z.id === id) ?? {}, 'testate') && dipendenti.find(z => z.id === id)?.resp)) p += 30;
     p += (d.abilita ?? []).filter(a => !abilitaPresenti.has(a)).length * 2;  // varietà di mansioni nel turno
     if (t.fascia !== 'I') p += mancaCompetenza(piano, dipendenti, r, g, t.fascia).filter(c => c !== 'resp' && sa(d, c)).length * 30;  // attività del turno
     // Velocità: i lenti si distribuiscono tra i turni, i veloci vanno dove ci sono già lenti.
@@ -440,6 +483,10 @@ const giorniAssente = (richieste, id) => new Set(richieste.filter(q => q.dip ===
 export function accorcia(piano, dipendenti, g, id, r, minuti) {
   const t = piano[g][id];
   if (!t || t.fisso || t.promo || t.protetto) return null;
+  // Il responsabile dell'intermedio (allegato bianco, occasioni) non si accorcia.
+  if (t.fascia === 'I' && dipendenti.find(d => d.id === id)?.resp) return null;
+  // Nei turni con testate o occasioni (2 responsabili) i responsabili non si accorciano.
+  if (respNecessari(r, g, t.fascia) >= 2 && dipendenti.find(d => d.id === id)?.resp) return null;
   const passi = Math.floor(minuti / r.passo) * r.passo;
   if (passi <= 0) return null;
   for (const modo of ['tardi', 'prima']) {
@@ -500,7 +547,7 @@ export function suggerimenti(piano, dipendenti, r, g) {
 
 /// Tutti i controlli della settimana, da mostrare con ✔ o ✖.
 export function verifica(piano, dipendenti, r, richieste = [], precedente = null) {
-  const errori = [], mancano = [];
+  const errori = [], mancano = [], avvisi = [];
   const nome = id => dipendenti.find(d => d.id === id)?.nome ?? id;
   for (let g = 0; g < 7; g++) {
     const giorno = piano[g];
@@ -516,6 +563,11 @@ export function verifica(piano, dipendenti, r, richieste = [], precedente = null
     if (cop.cambio < r.cambio.min || !cop.respCambio) errori.push(`${GIORNI[g]}: cambio turno scoperto`);
     for (const f of ['M', 'P']) for (const c of mancaCompetenza(piano, dipendenti, r, g, f).filter(c => c !== 'resp'))
       errori.push(`${GIORNI[g]}: ${FASCE[f].toLowerCase()} senza nessuno che sa fare ${c}`);
+    for (const f of ['M', 'I', 'P']) {
+      const n = Object.entries(giorno).filter(([id, t]) => t.fascia === f && dipendenti.find(d => d.id === id)?.resp).length;
+      if (Object.values(giorno).some(t => t.fascia === f) && n < respNecessari(r, g, f))
+        (n === 0 && f !== 'I' ? errori : avvisi).push(`${GIORNI[g]}: ${FASCE[f].toLowerCase()} con ${n} responsabil${n === 1 ? 'e' : 'i'}, ne servono ${respNecessari(r, g, f)}`);
+    }
     for (const f of ['M', 'P']) if (!cop.respTurno[f]) errori.push(`${GIORNI[g]}: ${FASCE[f].toLowerCase()} senza responsabile per tutto il turno`);
     for (const [id, t] of Object.entries(giorno)) {
       if (indisponibile(richieste, id, g, t)) errori.push(`${GIORNI[g]}: ${nome(id)} ha una richiesta`);
@@ -530,7 +582,7 @@ export function verifica(piano, dipendenti, r, richieste = [], precedente = null
     if (giorni < min) mancano.push({ id: d.id, nome: d.nome, giorni, previsti: min });
   }
   const sopraMonte = [0, 1, 2, 3, 4, 5, 6].filter(g => oreGiorno(piano[g], r) > r.monteOre[g] + 0.01);
-  return { errori, sopraMonte, mancano };
+  return { errori, sopraMonte, mancano, avvisi };
 }
 
 /// Malattie e maternità (dal…al, date AAAA-MM-GG) diventano richieste per i giorni della settimana che inizia `lunedi`.
