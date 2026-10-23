@@ -239,10 +239,10 @@ test('casse agli addetti, il responsabile solo se non c\'è nessun altro; testat
           assert.notEqual(d.ruolo, 'GA');
           // un responsabile in cassa solo se tutti gli addetti del turno sono già occupati in quella fascia oraria
           assert.notEqual(d.ruolo, 'CF');
-          if (d.resp) assert.ok(l.every(x => !/^Cassa [23]/.test(x.attivita)), 'responsabile in cassa 2 o 3');
-          // un responsabile in cassa solo se non ci sono abbastanza addetti (esclusi promo e bake) per automatica e cassa 1
+          if (d.resp) assert.ok(l.every(x => !/^Cassa (automatica|3)/.test(x.attivita)), 'responsabile in cassa automatica o 3');
+          // un responsabile in cassa solo se non ci sono abbastanza addetti (esclusi promo e bake) per automatica, cassa 1 e cassa 2
           if (d.resp) assert.ok(Object.entries(agenda).filter(([j, m]) => { const x = dip.find(y => y.id === j);
-            return !x.resp && x.ruolo !== 'GA' && !m.some(y => /promo|^bake$/i.test(y.attivita)); }).length < 2, 'responsabile in cassa con addetti disponibili');
+            return !x.resp && x.ruolo !== 'GA' && !m.some(y => /promo|^bake$/i.test(y.attivita)); }).length < 3, 'responsabile in cassa con addetti disponibili');
         }
         if (l.some(x => /testate/i.test(x.attivita))) assert.ok(d.resp && d.abilita.includes('Testate'));
         if (l.some(x => x.attivita === 'Bake')) assert.ok(!d.resp);
@@ -289,15 +289,29 @@ test('intermedio del martedì responsabile (fa le surge); 2 responsabili con tes
   assert.deepEqual(verifica(piano, dip, r).errori, []);
 });
 
-test('in automatico mai responsabili in cassa, chi fa il bake al massimo cassa 3, allegato bianco solo mercoledì da chi lo sa fare', () => {
+test('responsabili in cassa 1 o 2 solo senza altre attività, chi fa il bake al massimo cassa 3, allegato bianco solo mercoledì da chi lo sa fare', () => {
   const dip = negozio(), r = regoleNegozio();
   const { piano } = genera(dip, r);
   for (let g = 0; g < 7; g++)
     for (const f of ['M', 'I', 'P'])
       for (const [id, l] of Object.entries(agendaTurno(piano, dip, r, g, f).agenda)) {
         const d = dip.find(x => x.id === id), casse = l.filter(x => x.cassa).map(x => x.attivita);
-        if (d.resp) assert.deepEqual(casse, [], `${d.nome} responsabile in cassa`);
+        if (d.resp) assert.ok(casse.every(c => c === 'Cassa 1' || c === 'Cassa 2'), `${d.nome} responsabile in ${casse}`);
+        if (d.resp && casse.length) { const c = l.find(x => x.cassa);
+          assert.ok(l.every(x => x.cassa || /^attività da responsabile$|^referente bake$/i.test(x.attivita) || x.a <= c.da), 'responsabile in cassa con altre attività'); }
         if (l.some(x => x.attivita === 'Bake')) assert.ok(casse.every(c => c === 'Cassa 3'), `bake in ${casse}`);
         for (const x of l.filter(x => /allegato/i.test(x.attivita))) { assert.equal(g, 2); assert.ok(d.resp && d.abilita.includes('Allegato bianco')); }
       }
+});
+
+test('cassa automatica, 1 e 2 sempre aperte; nessun addetto senza mansione', () => {
+  const dip = negozio().map(d => ({ ...d, ruolo: d.resp ? 'CM' : 'AV' })), r = regoleNegozio();
+  const { piano } = genera(dip, r);
+  for (let g = 0; g < 7; g++)
+    for (const f of ['M', 'P']) {
+      const { agenda, mancano } = agendaTurno(piano, dip, r, g, f);
+      const aperte = Object.values(agenda).flat().map(x => x.attivita);
+      for (const n of ['Cassa automatica', 'Cassa 1', 'Cassa 2']) assert.ok(aperte.includes(n) || mancano.includes(n), `${g} ${f} ${n}`);
+      for (const [id, l] of Object.entries(agenda)) if (!dip.find(d => d.id === id).resp) assert.ok(l.length, 'addetto senza mansione');
+    }
 });

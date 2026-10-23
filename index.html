@@ -236,6 +236,8 @@ function modificaNelGiorno(id, g) {
   const f = document.getElementById('finestra');
   const mansioni = (r.attivita?.[g]?.[t.fascia] ?? []).filter(n => !/^cassa/i.test(n));
   f.innerHTML = `<h2>${esc(nomeDi(id))} · ${GIORNI[g]} ${data(lunedi, g)}</h2>
+    <div class="campo"><span>Persona</span><select id="mP"><option value="${id}">${esc(nomeDi(id))}</option>
+      ${dati.dipendenti.filter(d => !piano[g][d.id] && !tutteRichieste().some(q => q.dip === d.id && q.giorno === g && q.da == null)).map(d => `<option value="${d.id}">↔ ${esc(d.nome)}</option>`).join('')}</select></div>
     <div class="campo"><span>Entra</span><select id="mI">${opzioniOre(t.inizio, 240, 1380)}</select></div>
     <div class="campo"><span>Esce</span><select id="mE">${opzioniOre(t.fine, 270, 1410)}</select></div>
     <div class="campo"><span>Mansione</span><select id="mM"><option value="">Automatica</option>${mansioni.map(n => `<option ${t.mansione === n ? 'selected' : ''}>${esc(n)}</option>`).join('')}</select></div>
@@ -246,7 +248,10 @@ function modificaNelGiorno(id, g) {
   f.querySelector('#mOk').onclick = () => {
     const inizio = +f.querySelector('#mI').value, fine = +f.querySelector('#mE').value;
     if (fine <= inizio) return f.querySelector('#mE').focus();
-    piano[g][id] = { ...t, inizio, fine, mansione: f.querySelector('#mM').value || undefined };
+    // Sostituisci con: il turno passa a un collega libero quel giorno, con lo stesso orario.
+    const chi = f.querySelector('#mP').value;
+    if (chi !== id) delete piano[g][id];
+    piano[g][chi] = { ...t, inizio, fine, mansione: f.querySelector('#mM').value || undefined };
     salva(); torna();
   };
   f.querySelector('#mTogli').onclick = async () => {
@@ -405,6 +410,7 @@ function guidaCompetenze(i = 0) {
 
 // ---------- Versioni: a ogni aggiornamento del sito se ne aggiunge una in cima (0.01, 0.02, …) ----------
 const VERSIONI = [
+  { v: '0.04', data: '23 ott 2026', note: 'Cassa automatica, cassa 1 e cassa 2 sempre aperte (responsabile solo se libero, es. dopo la frutta); nessun addetto senza mansione (supporto cassa). Nella vista del giorno: “Persona” per sostituire chi fa il turno con un collega libero.' },
   { v: '0.03', data: '23 ott 2026', note: 'Ogni turno ha il suo responsabile anche con pochi responsabili o uno in malattia. All\'arrivo prima frutta, bake, carne e commi, il resto dopo. Martedì l\'intermedio è un responsabile e fa le surge. Testate e occasioni (mercoledì e domenica) con 2 responsabili, uno sa fare le testate; testate del lunedì solo di riserva. Allegato bianco solo il mercoledì, da un responsabile che lo sa fare (nuova competenza). In automatico i responsabili non vanno in cassa e chi fa il bake al massimo cassa 3. I turni si riempiono a giro.' },
   { v: '0.02', data: '23 ott 2026', note: 'Dalla vista del giorno: tocca una persona per cambiare orario, mansione o toglierla. In Regole: esporta tutti i dati in un file (anche malattie e maternità) e ricaricali.' },
   { v: '0.01', data: '22 ott 2026', note: 'Agenda delle attività per persona; la cassa non blocca (quando arrivano clienti); responsabili in cassa solo come ultima spiaggia.' },

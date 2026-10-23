@@ -391,22 +391,37 @@ export function agendaTurno(piano, dipendenti, r, g, f) {
     metti(chi.id, n, a == null ? null : da, a);
   }
   // Casse: non bloccano nessuno. Chi è di cassa fa le sue attività e va in cassa quando arrivano i clienti.
-  // In automatico mai ai responsabili; chi fa il bake al massimo la cassa 3; mai a chi fa promo.
-  // Se non c'è nessuno, cassa 2 e 3 restano chiuse (automatica e cassa 1 vengono segnalate).
+  // Sempre aperte: cassa automatica (un addetto, mai un responsabile né chi fa il bake), cassa 1 e cassa 2
+  // (un addetto; se non c'è, un responsabile senza altre attività). La cassa 3 se resta qualcuno, anche chi fa il bake.
+  // Mai a chi fa promo; il capo e il garzone non fanno cassa.
   const chiuse = [];
   if (ha(a => competenzaDi(a) === 'cassa').length) {
     const [da, a] = f === 'M' ? [aperturaCasse(g), r.cambio.da] : [r.fasce.P.inizio, chiusuraCasse(g)];
     const finestra = d => [Math.max(da, turno(d.id).inizio), Math.min(a, turno(d.id).fine)];
     const fa = (d, re) => agenda[d.id].some(y => re.test(y.attivita));
     const giaCassa = new Set();
-    const candidati = conBake => per(presenti.filter(d => sa(d, 'cassa') && !d.resp && !giaCassa.has(d.id) && !fa(d, /promo/i) &&
-      (conBake || !fa(d, /^bake$/i)) && finestra(d)[1] - finestra(d)[0] >= 60), d => +fa(d, /^bake$/i), d => carico(d.id), d => finestra(d)[0]);
+    const liberi = (resp, bake) => per(presenti.filter(d => sa(d, 'cassa') && !giaCassa.has(d.id) && !fa(d, /promo/i) &&
+      !!d.resp === resp && (bake || !fa(d, /^bake$/i)) && finestra(d)[1] - finestra(d)[0] >= 60 &&
+      // il responsabile solo se è libero durante le casse (es. ha finito la frutta prima delle 8)
+      (!resp || agenda[d.id].every(y => /^attività da responsabile$|^referente bake$/i.test(y.attivita) || (y.da != null && y.a <= finestra(d)[0])))),
+      d => agenda[d.id].filter(y => y.da != null).length, d => carico(d.id), d => finestra(d)[0]);
+    const scelta = {
+      'Cassa automatica': () => liberi(false, false)[0],
+      'Cassa 1': () => liberi(false, false)[0] ?? liberi(true, false)[0],
+      'Cassa 2': () => liberi(false, false)[0] ?? liberi(true, false)[0],
+      'Cassa 3': () => liberi(false, false)[0] ?? liberi(false, true)[0],
+    };
     for (const n of ['Cassa automatica', 'Cassa 1', 'Cassa 2', 'Cassa 3']) {
-      const chi = candidati(n === 'Cassa 3')[0];
-      if (!chi) { (n === 'Cassa automatica' || n === 'Cassa 1' ? mancano : chiuse).push(n); continue; }
+      const chi = scelta[n]();
+      if (!chi) { (n === 'Cassa 3' ? chiuse : mancano).push(n); continue; }
       giaCassa.add(chi.id);
       const [x, y] = finestra(chi);
       agenda[chi.id].push({ attivita: n, da: x, a: y, cassa: true });
+    }
+    // Nessuno resta senza mansione: chi non ha niente (e non è responsabile) va di supporto in cassa.
+    for (const d of presenti.filter(d => !agenda[d.id].length && sa(d, 'cassa') && !d.resp && finestra(d)[1] > finestra(d)[0])) {
+      const [x, y] = finestra(d);
+      agenda[d.id].push({ attivita: 'Supporto cassa', da: x, a: y, cassa: true });
     }
   }
   // Il responsabile che sa fare il bake non lo fa, ma ne è il referente.
