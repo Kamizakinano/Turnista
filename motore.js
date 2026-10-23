@@ -17,7 +17,7 @@ export function regoleBase() {
     cambio: { da: 780, a: 810, min: 2 },  // al cambio turno almeno 2 persone, con un responsabile
     maxGiorni: 6, stacco: 660, durataMin: 240, passo: 30,
     accorciaDaSolo: true,
-    attivita: [{"M": ["Commissionamento", "Frutta", "Bake", "Carne", "Cassa", "Attività da responsabile", "Testate"], "P": ["Commissionamento", "Cassa", "Attività da responsabile", "Bake"], "I": []}, {"M": ["Commissionamento", "Frutta", "Bake", "Carne", "Cassa", "Attività da responsabile"], "P": ["Commissionamento", "Cassa", "Attività da responsabile", "Bake"], "I": ["Surge occasioni", "Allegato bianco responsabile"]}, {"M": ["Commissionamento", "Frutta", "Bake", "Carne", "Cassa", "Attività da responsabile", "Testate", "Allegato bianco responsabile", "Food"], "P": ["Commissionamento", "Cassa", "Attività da responsabile", "Bake", "Promo", "Fresche occasioni"], "I": []}, {"M": ["Commissionamento", "Frutta", "Bake", "Carne", "Cassa", "Attività da responsabile"], "P": ["Commissionamento", "Cassa", "Attività da responsabile", "Bake"], "I": []}, {"M": ["Commissionamento", "Frutta", "Bake", "Carne", "Cassa", "Attività da responsabile"], "P": ["Commissionamento", "Cassa", "Attività da responsabile", "Bake"], "I": ["Allegato bianco responsabile"]}, {"M": ["Commissionamento", "Frutta", "Bake", "Carne", "Cassa", "Attività da responsabile", "Sconto food"], "P": ["Commissionamento", "Cassa", "Attività da responsabile", "Bake"], "I": ["Allegato bianco responsabile"]}, {"M": ["Commissionamento", "Frutta", "Bake", "Carne", "Cassa", "Attività da responsabile", "Testate", "Surge occasioni"], "P": ["Commissionamento", "Cassa", "Attività da responsabile", "Bake", "Promo", "Fresche occasioni"], "I": ["Allegato bianco responsabile"]}],               // dentro la fascia: si entra più tardi o si esce prima per stare nel monte ore
+    attivita: [{"M": ["Commissionamento", "Frutta", "Bake", "Carne", "Cassa", "Attività da responsabile", "Testate"], "P": ["Commissionamento", "Cassa", "Attività da responsabile", "Bake"], "I": []}, {"M": ["Commissionamento", "Frutta", "Bake", "Carne", "Cassa", "Attività da responsabile"], "P": ["Commissionamento", "Cassa", "Attività da responsabile", "Bake"], "I": ["Surge occasioni"]}, {"M": ["Commissionamento", "Frutta", "Bake", "Carne", "Cassa", "Attività da responsabile", "Testate", "Allegato bianco responsabile", "Food"], "P": ["Commissionamento", "Cassa", "Attività da responsabile", "Bake", "Promo", "Fresche occasioni"], "I": []}, {"M": ["Commissionamento", "Frutta", "Bake", "Carne", "Cassa", "Attività da responsabile"], "P": ["Commissionamento", "Cassa", "Attività da responsabile", "Bake"], "I": []}, {"M": ["Commissionamento", "Frutta", "Bake", "Carne", "Cassa", "Attività da responsabile"], "P": ["Commissionamento", "Cassa", "Attività da responsabile", "Bake"], "I": []}, {"M": ["Commissionamento", "Frutta", "Bake", "Carne", "Cassa", "Attività da responsabile", "Sconto food"], "P": ["Commissionamento", "Cassa", "Attività da responsabile", "Bake"], "I": []}, {"M": ["Commissionamento", "Frutta", "Bake", "Carne", "Cassa", "Attività da responsabile", "Testate", "Surge occasioni"], "P": ["Commissionamento", "Cassa", "Attività da responsabile", "Bake", "Promo", "Fresche occasioni"], "I": []}],               // dentro la fascia: si entra più tardi o si esce prima per stare nel monte ore
   };
 }
 
@@ -115,13 +115,15 @@ export function squadre(dipendenti, r, richieste = [], precedente = null, numero
       }
   // Le testate le fa solo un responsabile che le sa fare: la squadra che le ha deve averne almeno uno
   // (si scambia con un responsabile dell'altra squadra che non le sa fare).
-  for (const f of ['M', 'P']) {
-    if (![0, 1, 2, 3, 4, 5, 6].some(g => g !== 0 && attivitaDi(r, g, f).some(n => /testate/i.test(n)))) continue;
-    const sanno = x => persone.filter(d => d.resp && sa(d, 'testate') && pref[d.id] === x);
-    if (sanno(f).length) continue;
-    const viene = sanno(altra(f))[0], va = persone.find(d => d.resp && !sa(d, 'testate') && pref[d.id] === f);
-    if (viene) { pref[viene.id] = f; if (va) pref[va.id] = altra(f); }
-  }
+  // Lo stesso per l'allegato bianco (responsabile che lo sa fare).
+  for (const [c, re] of [['testate', /testate/i], ['allegato bianco', /allegato/i]])
+    for (const f of ['M', 'P']) {
+      if (![0, 1, 2, 3, 4, 5, 6].some(g => (g !== 0 || c !== 'testate') && attivitaDi(r, g, f).some(n => re.test(n)))) continue;
+      const sanno = x => persone.filter(d => d.resp && sa(d, c) && pref[d.id] === x);
+      if (sanno(f).length) continue;
+      const viene = sanno(altra(f))[0], va = persone.find(d => d.resp && !sa(d, c) && pref[d.id] === f);
+      if (viene) { pref[viene.id] = f; if (va) pref[va.id] = altra(f); }
+    }
   return pref;
 }
 
@@ -277,6 +279,7 @@ const fasciaCapo = r => r.fasce.C ?? { inizio: 480, fine: 960 };
 export function competenzaDi(attivita) {
   const a = attivita.toLowerCase();
   // Testate e occasioni (surge, fresche) le fa solo un responsabile.
+  if (a.includes('allegato')) return 'allegato bianco';  // solo un responsabile che lo sa fare
   if (a.includes('responsabile') || a.includes('occasioni')) return 'resp';
   if (a.includes('food')) return 'food';
   if (a.includes('bake') || a.includes('pane')) return 'pane';
@@ -292,10 +295,11 @@ export const attivitaDi = (r, g, f) => r.attivita?.[g]?.[f] ?? regoleBase().atti
 /// Quanti responsabili servono: l'intermedio è sempre un responsabile; 2 nei turni con testate o occasioni
 /// (le testate del lunedì sono solo di riserva, se non fatte domenica).
 export function respNecessari(r, g, f) {
-  if (f === 'I') return r.fabbisogno[g]?.I ?? 0;
+  if (f === 'I') return Math.min(r.fabbisogno[g]?.I ?? 0, attivitaDi(r, g, f).some(n => ['resp', 'allegato bianco'].includes(competenzaDi(n))) ? 1 : 0);
   return attivitaDi(r, g, f).some(n => /occasioni/i.test(n) || (/testate/i.test(n) && g !== 0)) ? 2 : 1;
 }
-const sa = (d, c) => c == null || (c === 'resp' ? !!d.resp : c === 'cassa' ? !['GA', 'CF'].includes(String(d.ruolo ?? '').toUpperCase())
+// La promo (tutto il turno) la fa solo chi non è responsabile.
+const sa = (d, c) => c == null || (c === 'promo' && d.resp ? false : c === 'allegato bianco' ? !!d.resp && (d.abilita ?? []).some(x => x.toLowerCase() === c) : c === 'resp' ? !!d.resp : c === 'cassa' ? !['GA', 'CF'].includes(String(d.ruolo ?? '').toUpperCase())
   : (c === 'frutta' && d.resp) || (d.abilita ?? []).some(x => x.toLowerCase() === c));
 const serveAttivita = (r, g, f) => [...new Set(attivitaDi(r, g, f).map(competenzaDi).filter(c => c != null))];
 const mancaCompetenza = (piano, dipendenti, r, g, f) => serveAttivita(r, g, f).filter(c =>
@@ -387,21 +391,19 @@ export function agendaTurno(piano, dipendenti, r, g, f) {
     metti(chi.id, n, a == null ? null : da, a);
   }
   // Casse: non bloccano nessuno. Chi è di cassa fa le sue attività e va in cassa quando arrivano i clienti.
-  // Cassa automatica e 1 agli addetti (il responsabile solo come ultima spiaggia); cassa 2 e 3 agli addetti,
-  // anche a chi fa il bake; mai a chi fa promo. Se non c'è nessuno, cassa 2 e 3 restano chiuse.
+  // In automatico mai ai responsabili; chi fa il bake al massimo la cassa 3; mai a chi fa promo.
+  // Se non c'è nessuno, cassa 2 e 3 restano chiuse (automatica e cassa 1 vengono segnalate).
   const chiuse = [];
   if (ha(a => competenzaDi(a) === 'cassa').length) {
     const [da, a] = f === 'M' ? [aperturaCasse(g), r.cambio.da] : [r.fasce.P.inizio, chiusuraCasse(g)];
     const finestra = d => [Math.max(da, turno(d.id).inizio), Math.min(a, turno(d.id).fine)];
     const fa = (d, re) => agenda[d.id].some(y => re.test(y.attivita));
     const giaCassa = new Set();
-    const candidati = (conBake, conResp) => per(presenti.filter(d => sa(d, 'cassa') && !giaCassa.has(d.id) && !fa(d, /promo/i) &&
-      (conBake || !fa(d, /^bake$/i)) && (conResp || !d.resp) && finestra(d)[1] - finestra(d)[0] >= 60),
-      d => +!!d.resp, d => +fa(d, /^bake$/i), d => carico(d.id), d => finestra(d)[0]);
+    const candidati = conBake => per(presenti.filter(d => sa(d, 'cassa') && !d.resp && !giaCassa.has(d.id) && !fa(d, /promo/i) &&
+      (conBake || !fa(d, /^bake$/i)) && finestra(d)[1] - finestra(d)[0] >= 60), d => +fa(d, /^bake$/i), d => carico(d.id), d => finestra(d)[0]);
     for (const n of ['Cassa automatica', 'Cassa 1', 'Cassa 2', 'Cassa 3']) {
-      const base = n === 'Cassa automatica' || n === 'Cassa 1';
-      const chi = candidati(!base, false)[0] ?? (base ? candidati(false, true)[0] : null);
-      if (!chi) { (base ? mancano : chiuse).push(n); continue; }
+      const chi = candidati(n === 'Cassa 3')[0];
+      if (!chi) { (n === 'Cassa automatica' || n === 'Cassa 1' ? mancano : chiuse).push(n); continue; }
       giaCassa.add(chi.id);
       const [x, y] = finestra(chi);
       agenda[chi.id].push({ attivita: n, da: x, a: y, cassa: true });
@@ -449,7 +451,7 @@ function migliore(dipendenti, piano, g, t, r, richieste, precedente, pref, giorn
     // Prima chi è più indietro rispetto ai giorni del suo contratto: i giorni si dividono in proporzione.
     let p = -giorniFatti[d.id] / Math.max(1, previsti.min) * 40;
     if (pref[d.id] !== t.fascia && t.fascia !== 'I') p -= 50;
-    if (!serveResp && d.resp) p -= 3;                         // i responsabili servono dove manca un responsabile
+    if (!serveResp && d.resp) p -= 60;                        // un responsabile in più solo se non c'è un addetto
     // Nei turni con le testate, almeno un responsabile che le sa fare.
     if (serveResp && d.resp && attivitaDi(r, g, t.fascia).some(n => /testate/i.test(n)) && sa(d, 'testate') &&
         !Object.entries(piano[g]).some(([id, x]) => x.fascia === t.fascia && sa(dipendenti.find(z => z.id === id) ?? {}, 'testate') && dipendenti.find(z => z.id === id)?.resp)) p += 30;

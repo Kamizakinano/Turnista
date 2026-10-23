@@ -8,7 +8,7 @@ export function esempio() {
   return Array.from({ length: 25 }, (_, i) => ({
     id: 'd' + i, nome: 'Persona ' + (i + 1), resp: i < 5,
     ore: i === 23 || i === 24 ? 20 : i % 3 === 0 ? 30 : 40,
-    abilita: [abil[i % 4], 'cassa', ...(i % 3 === 0 ? ['Food'] : []), ...(i % 4 === 1 ? ['Promo', 'Testate'] : []), ...(i % 5 === 2 ? ['frutta', 'pane'] : [])],
+    abilita: [abil[i % 4], 'cassa', ...(i % 3 === 0 ? ['Food'] : []), ...(i % 4 === 1 ? ['Promo', 'Testate'] : []), ...(i % 5 === 2 ? ['frutta', 'pane'] : []), ...(i === 2 || i === 4 ? ['Allegato bianco'] : [])],
   }));
 }
 
@@ -29,7 +29,7 @@ test('la settimana rispetta tutte le regole', () => {
 function negozio() {
   return Array.from({ length: 24 }, (_, i) => ({ id: 'n' + i, nome: 'Collega ' + (i + 1),
     ore: i < 6 ? 40 : i < 21 ? 30 : 20, resp: i < 6, velocita: i % 3 === 0 ? 'lento' : i % 5 === 0 ? 'veloce' : 'normale',
-    abilita: ['cassa', i % 2 ? 'pane' : 'commissionamento', ...(i % 3 === 0 ? ['Food', 'frutta'] : []), ...(i % 4 === 1 ? ['Promo', 'Testate'] : [])] }));
+    abilita: ['cassa', i % 2 ? 'pane' : 'commissionamento', ...(i % 3 === 0 ? ['Food', 'frutta'] : []), ...(i % 4 === 1 ? ['Promo', 'Testate'] : []), ...(i === 2 || i === 4 ? ['Allegato bianco'] : [])] }));
 }
 function regoleNegozio() {
   const r = regoleBase();
@@ -274,11 +274,11 @@ test('pochi responsabili: i loro giorni bastano per avere un responsabile in ogn
       assert.ok(Object.entries(piano[g]).some(([id, t]) => t.fascia === f && dip.find(d => d.id === id).resp), `giorno ${g} ${f}`);
 });
 
-test('intermedio responsabile (martedì fa le surge); 2 responsabili con testate o occasioni; testate del lunedì di riserva', () => {
+test('intermedio del martedì responsabile (fa le surge); 2 responsabili con testate o occasioni; testate del lunedì di riserva', () => {
   const dip = negozio(), r = regoleNegozio();
   const { piano } = genera(dip, r);
   const resp = (g, f) => Object.entries(piano[g]).filter(([id, t]) => t.fascia === f && dip.find(d => d.id === id).resp);
-  for (let g = 0; g < 7; g++) if (r.fabbisogno[g].I) assert.equal(resp(g, 'I').length, 1, 'intermedio ' + g);
+  assert.equal(resp(1, 'I').length, 1, 'intermedio del martedì responsabile');
   const mar = agendaTurno(piano, dip, r, 1, 'I').agenda;
   assert.ok(Object.values(mar).some(l => l.some(x => x.attivita === 'Surge occasioni')));
   for (const [g, f] of [[2, 'M'], [2, 'P'], [6, 'M'], [6, 'P']]) {
@@ -287,4 +287,17 @@ test('intermedio responsabile (martedì fa le surge); 2 responsabili con testate
   }
   assert.ok(!agendaTurno(piano, dip, r, 0, 'M').mancano.includes('Testate'));
   assert.deepEqual(verifica(piano, dip, r).errori, []);
+});
+
+test('in automatico mai responsabili in cassa, chi fa il bake al massimo cassa 3, allegato bianco solo mercoledì da chi lo sa fare', () => {
+  const dip = negozio(), r = regoleNegozio();
+  const { piano } = genera(dip, r);
+  for (let g = 0; g < 7; g++)
+    for (const f of ['M', 'I', 'P'])
+      for (const [id, l] of Object.entries(agendaTurno(piano, dip, r, g, f).agenda)) {
+        const d = dip.find(x => x.id === id), casse = l.filter(x => x.cassa).map(x => x.attivita);
+        if (d.resp) assert.deepEqual(casse, [], `${d.nome} responsabile in cassa`);
+        if (l.some(x => x.attivita === 'Bake')) assert.ok(casse.every(c => c === 'Cassa 3'), `bake in ${casse}`);
+        for (const x of l.filter(x => /allegato/i.test(x.attivita))) { assert.equal(g, 2); assert.ok(d.resp && d.abilita.includes('Allegato bianco')); }
+      }
 });
